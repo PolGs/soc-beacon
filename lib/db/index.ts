@@ -149,6 +149,8 @@ CREATE TABLE IF NOT EXISTS alert_enrichments (
   threat_intel TEXT,
   recommendation TEXT,
   confidence REAL,
+  ai_score REAL,
+  heuristics_score REAL,
   related_cves TEXT,
   geo_country TEXT,
   geo_city TEXT,
@@ -220,6 +222,16 @@ function migrateSchema(database: Database) {
         ELSE 'suspicious'
       END
     `)
+  }
+
+  if (!tableHasColumn(database, "alert_enrichments", "ai_score")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN ai_score REAL")
+    database.run("UPDATE alert_enrichments SET ai_score = confidence WHERE ai_score IS NULL")
+  }
+
+  if (!tableHasColumn(database, "alert_enrichments", "heuristics_score")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN heuristics_score REAL")
+    database.run("UPDATE alert_enrichments SET heuristics_score = confidence WHERE heuristics_score IS NULL")
   }
 }
 
@@ -628,7 +640,7 @@ function seedDemoData(database: Database) {
     "INSERT INTO alerts (id, timestamp, source, source_ip, dest_ip, severity, title, description, yara_match, mitre_tactic, mitre_technique, status, incident_status, verdict, raw_log) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   )
   const enrichStmt = database.prepare(
-    "INSERT INTO alert_enrichments (alert_id, ai_analysis, ioc_type, threat_intel, recommendation, confidence, related_cves, geo_country, geo_city, asn_info) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO alert_enrichments (alert_id, ai_analysis, ioc_type, threat_intel, recommendation, confidence, ai_score, heuristics_score, related_cves, geo_country, geo_city, asn_info) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   )
 
   for (const a of alertsData) {
@@ -642,7 +654,7 @@ function seedDemoData(database: Database) {
     ])
     enrichStmt.run([
       a.id, a.enrichment.aiAnalysis, a.enrichment.iocType, a.enrichment.threatIntel,
-      a.enrichment.recommendation, a.enrichment.confidence,
+      a.enrichment.recommendation, a.enrichment.confidence, a.enrichment.confidence, a.enrichment.confidence,
       JSON.stringify(a.enrichment.relatedCves),
       a.enrichment.geoLocation?.country ?? null,
       a.enrichment.geoLocation?.city ?? null,

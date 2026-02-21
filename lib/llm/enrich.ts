@@ -9,7 +9,7 @@ import type { AlertVerdict, Severity } from "@/lib/types"
 
 type AgentResult = {
   analysis: string
-  confidence?: number
+  aiScore?: number
   severity?: Severity
   iocType?: string
   recommendation?: string
@@ -21,7 +21,7 @@ const AGENT_PROMPT = `You are a SOC analyst specialist.
 Return ONLY valid JSON with:
 {
   "analysis": "short technical paragraph",
-  "confidence": 0-100,
+  "aiScore": 0-100,
   "severity": "critical|high|medium|low|info",
   "iocType": "IP|Domain|Hash|URL|Email|Mixed|Unknown",
   "recommendation": "numbered incident-response actions",
@@ -47,7 +47,12 @@ function parseAgentJson(raw: string): AgentResult {
         : undefined
     return {
       analysis: String(obj.analysis || "").trim(),
-      confidence: typeof obj.confidence === "number" ? obj.confidence : undefined,
+      aiScore:
+        typeof obj.aiScore === "number"
+          ? obj.aiScore
+          : typeof obj.confidence === "number"
+            ? obj.confidence
+            : undefined,
       severity,
       iocType: obj.iocType ? String(obj.iocType) : undefined,
       recommendation: obj.recommendation ? String(obj.recommendation) : undefined,
@@ -76,12 +81,12 @@ function buildHeuristicFallback(input: {
     .filter(Boolean)
     .join(" | ")
 
-  const confidenceBase =
+  const baseScore =
     input.severity === "critical" ? 85 : input.severity === "high" ? 72 : input.severity === "medium" ? 58 : 42
 
   return {
     analysis: `Heuristic analysis (no LLM key configured): ${input.title} from ${input.source}. ${input.description}. ${indicatorSummary || "No indicators extracted."} Threat intel: ${input.threatIntel}`,
-    confidence: confidenceBase,
+    aiScore: baseScore,
     severity:
       input.severity === "critical" || input.severity === "high" || input.severity === "medium" || input.severity === "low" || input.severity === "info"
         ? (input.severity as Severity)
@@ -93,6 +98,33 @@ function buildHeuristicFallback(input: {
     recommendation:
       "1. Validate source host context and isolate if suspicious. 2. Block confirmed malicious indicators. 3. Hunt for related events in adjacent logs. 4. Escalate if repeated activity persists.",
   }
+}
+
+function computeHeuristicsScore(input: {
+  severity: Severity
+  indicators: ReturnType<typeof extractIndicators>
+  hasThreatIntel: boolean
+  hasYaraMatch: boolean
+}): number {
+  const severityBase: Record<Severity, number> = {
+    critical: 92,
+    high: 78,
+    medium: 62,
+    low: 42,
+    info: 24,
+  }
+
+  const iocWeight =
+    input.indicators.ips.length * 5 +
+    input.indicators.urls.length * 7 +
+    input.indicators.domains.length * 6 +
+    input.indicators.hashes.length * 8 +
+    input.indicators.filenames.length * 2
+
+  let score = severityBase[input.severity] + Math.min(20, iocWeight)
+  if (input.hasThreatIntel) score += 8
+  if (input.hasYaraMatch) score += 10
+  return Math.max(0, Math.min(100, Math.round(score)))
 }
 
 async function runAgent(client: Awaited<ReturnType<typeof getLLMClient>>, userPrompt: string): Promise<AgentResult> {
@@ -164,7 +196,7 @@ ${alert.enrichment.threatIntel || "No threat intel snapshot available."}
   const agentCount = Math.max(1, Math.min(4, settings.analysisAgents || 3))
   const prompts = [
     `Role: Incident Triage Expert.
-Goal: Explain what happened, probable attacker objective, and assign confidence.
+Goal: Explain what happened, probable attacker objective, and assign AI score.
 ${sharedContext}`,
     `Role: IOC and Detection Expert.
 Goal: Validate IOC type quality, tune MITRE mapping, note likely false positives.
@@ -211,12 +243,12 @@ ${sharedContext}`,
   }
 
   const analyses = agentResults.map((a, i) => `Agent ${i + 1}: ${a.analysis}`).filter(Boolean)
-  const confidences = agentResults.map((r) => r.confidence).filter((v): v is number => typeof v === "number")
-  const avgConfidence = confidences.length
-    ? Math.round(confidences.reduce((a, b) => a + b, 0) / confidences.length)
+  const aiScores = agentResults.map((r) => r.aiScore).filter((v): v is number => typeof v === "number")
+  const avgAiScore = aiScores.length
+    ? Math.round(aiScores.reduce((a, b) => a + b, 0) / aiScores.length)
     : aiSuccessCount > 0
       ? 65
-      : alert.enrichment.confidence || heuristicFallback.confidence || 0
+      : alert.enrichment.aiScore || alert.enrichment.confidence || heuristicFallback.aiScore || 0
 
   const iocType =
     agentResults.map((r) => r.iocType).find((v) => !!v && v !== "Unknown") ||
@@ -234,23 +266,31 @@ ${sharedContext}`,
     .map((r) => r.severity)
     .filter((s): s is Severity => !!s)
   const recategorizedSeverity = aggregateSeverity(aiSeverities, alert.severity)
+  const heuristicsScore = computeHeuristicsScore({
+    severity: recategorizedSeverity,
+    indicators,
+    hasThreatIntel: Boolean(alert.enrichment.threatIntel?.trim()),
+    hasYaraMatch: Boolean(alert.yaraMatch),
+  })
 
   await upsertEnrichment(alertId, {
     aiAnalysis: analyses.join("\n\n"),
     iocType,
     recommendation,
-    confidence: toNumberInRange(avgConfidence, alert.enrichment.confidence),
+    confidence: toNumberInRange(avgAiScore, alert.enrichment.aiScore || alert.enrichment.confidence || 0),
+    aiScore: toNumberInRange(avgAiScore, alert.enrichment.aiScore || alert.enrichment.confidence || 0),
+    heuristicsScore: toNumberInRange(heuristicsScore, alert.enrichment.heuristicsScore || 0),
     llmProvider: settings.provider,
     llmModel: settings.model || "gpt-4.1-nano",
   })
 
   const autoStatusThreshold = settings.autoStatusConfidenceThreshold ?? 90
   const verdict: AlertVerdict =
-    avgConfidence >= 80 ? "malicious" : avgConfidence >= 45 ? "suspicious" : "false_positive"
+    avgAiScore >= 80 ? "malicious" : avgAiScore >= 45 ? "suspicious" : "false_positive"
   await updateAlertVerdict(alertId, verdict)
   await updateAlertSeverity(alertId, recategorizedSeverity)
 
-  if (alert.incidentStatus === "unassigned" && avgConfidence >= autoStatusThreshold) {
+  if (alert.incidentStatus === "unassigned" && avgAiScore >= autoStatusThreshold) {
     await updateAlertIncidentStatus(alertId, "in_progress")
   }
 }

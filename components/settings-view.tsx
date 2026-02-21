@@ -425,7 +425,7 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
               <Input type="number" min="1" max="4" value={analysisAgents} onChange={(e) => setAnalysisAgents(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Auto Status Threshold (%)</Label>
+              <Label className="text-[11px] text-muted-foreground">Auto Incident Threshold (%)</Label>
               <Input type="number" min="1" max="100" value={autoStatusThreshold} onChange={(e) => setAutoStatusThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
           </div>
@@ -442,7 +442,7 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
             </div>
             <pre className="mt-2 text-[11px] font-mono text-foreground/50 leading-relaxed whitespace-pre-wrap">
 {`Multi-agent enrichment (up to 4 low-cost calls):
-1) Incident triage + confidence scoring
+1) Incident triage scoring
 2) IOC/detection quality review
 3) Threat-intel correlation (IP/URL/domain/hash)
 4) SOC response plan
@@ -689,15 +689,7 @@ Model default: gpt-4.1-nano`}
 
             <div className="bg-background/40 rounded-md p-3 border border-border/20">
               <p className="text-[11px] text-muted-foreground mb-2">Single log (curl):</p>
-              <pre className="text-[11px] font-mono text-foreground/70 whitespace-pre-wrap">{`curl -X POST "https://your-server:${apiPort}/api/v1/logs" \\
-  -H "Content-Type: application/json" \\
-  -H "x-api-key: ${apiKey || "sk-beacon-..."}" \\
-  -d '{
-    "timestamp": "2026-02-21T16:32:00.000Z",
-    "source": "Firewall-01",
-    "message": "DROP: SRC=198.51.100.44 DST=10.0.1.15 PROTO=TCP SPT=443 DPT=49832",
-    "severity": "high"
-  }'`}</pre>
+              <pre className="text-[11px] font-mono text-foreground/70 whitespace-pre-wrap">{`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: sk-beacon-fPGFZryFBuUAL-An" -d "{\\\"timestamp\\\":\\\"2026-01-22T13:09:00.000Z\\\",\\\"source\\\":\\\"DB-Server-01\\\",\\\"message\\\":\\\"SELECT * FROM users WHERE email='admin@example.com' duration=12ms\\\",\\\"severity\\\":\\\"info\\\"}"`}</pre>
             </div>
 
             <div className="bg-background/40 rounded-md p-3 border border-border/20">

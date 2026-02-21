@@ -2,6 +2,21 @@ import { getDb, persistDb } from "./index"
 import type { Alert, AlertEnrichment, Severity, IncidentStatus, AlertVerdict } from "../types"
 import { nanoid } from "nanoid"
 
+function defaultScoreFromSeverity(severity: Severity): number {
+  switch (severity) {
+    case "critical":
+      return 92
+    case "high":
+      return 78
+    case "medium":
+      return 62
+    case "low":
+      return 42
+    default:
+      return 24
+  }
+}
+
 function normalizeSqliteTimestamp(value: string | undefined): string {
   if (!value) return new Date().toISOString()
   if (value.includes("T")) return value
@@ -10,13 +25,17 @@ function normalizeSqliteTimestamp(value: string | undefined): string {
 }
 
 function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unknown>): Alert {
+  const severity = row.severity as Severity
+  const fallbackScore = defaultScoreFromSeverity(severity)
   const enrichment: AlertEnrichment = enrichRow
     ? {
         aiAnalysis: (enrichRow.ai_analysis as string) || "",
         iocType: (enrichRow.ioc_type as string) || "",
         threatIntel: (enrichRow.threat_intel as string) || "",
         recommendation: (enrichRow.recommendation as string) || "",
-        confidence: (enrichRow.confidence as number) || 0,
+        aiScore: (enrichRow.ai_score as number) || (enrichRow.confidence as number) || fallbackScore,
+        heuristicsScore: (enrichRow.heuristics_score as number) || fallbackScore,
+        confidence: (enrichRow.confidence as number) || fallbackScore,
         relatedCves: enrichRow.related_cves ? JSON.parse(enrichRow.related_cves as string) : [],
         geoLocation:
           enrichRow.geo_country
@@ -29,7 +48,9 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
         iocType: "",
         threatIntel: "",
         recommendation: "",
-        confidence: 0,
+        aiScore: fallbackScore,
+        heuristicsScore: fallbackScore,
+        confidence: fallbackScore,
         relatedCves: [],
         geoLocation: null,
         asnInfo: null,
@@ -42,7 +63,7 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
     source: row.source as string,
     sourceIp: row.source_ip as string,
     destIp: row.dest_ip as string,
-    severity: row.severity as Severity,
+    severity,
     title: row.title as string,
     description: row.description as string,
     yaraMatch: (row.yara_match as string) || null,
@@ -75,7 +96,7 @@ export async function getAlerts(filters?: {
   offset?: number
 }): Promise<Alert[]> {
   const db = await getDb()
-  let sql = `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.related_cves, e.geo_country, e.geo_city, e.asn_info
+  let sql = `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info
     FROM alerts a LEFT JOIN alert_enrichments e ON a.id = e.alert_id WHERE 1=1`
   const params: unknown[] = []
 
@@ -114,7 +135,7 @@ export async function getAlertById(id: string): Promise<Alert | null> {
   const db = await getDb()
   const rows = stmtToObjects(
     db,
-    `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.related_cves, e.geo_country, e.geo_city, e.asn_info
+    `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info
      FROM alerts a LEFT JOIN alert_enrichments e ON a.id = e.alert_id WHERE a.id = ?`,
     [id]
   )

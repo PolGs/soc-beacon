@@ -24,6 +24,7 @@ import { useState, useTransition } from "react"
 import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { deleteAlertAction, updateAlertIncidentStatusAction, updateAlertVerdictAction, triggerEnrichmentAction, triggerThreatIntelAction } from "@/app/actions"
+import { ScoreRing } from "@/components/score-ring"
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -124,24 +125,9 @@ export function AlertDetail({ alert }: { alert: Alert }) {
                 Ingested: {new Date(alert.ingestedAt || alert.timestamp).toLocaleString()}
               </span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-[11px] text-muted-foreground">Confidence</span>
-              <div className="w-16 h-1.5 rounded-full bg-foreground/10 overflow-hidden">
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${alert.enrichment.confidence}%`,
-                    backgroundColor: alert.enrichment.confidence >= 80
-                      ? "hsl(142 71% 45%)"
-                      : alert.enrichment.confidence >= 50
-                        ? "hsl(45 93% 47%)"
-                        : "hsl(0 0% 45%)",
-                  }}
-                />
-              </div>
-              <span className="text-xs font-mono text-foreground tabular-nums">
-                {alert.enrichment.confidence}%
-              </span>
+            <div className="flex items-center gap-3">
+              <ScoreRing label="AI" score={alert.enrichment.aiScore} size={50} />
+              <ScoreRing label="Heuristics" score={alert.enrichment.heuristicsScore} size={50} />
             </div>
             <div className="flex items-center gap-2 mt-1">
               <select

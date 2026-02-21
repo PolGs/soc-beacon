@@ -8,7 +8,9 @@ export interface AlertEnrichment {
   iocType: string
   threatIntel: string
   recommendation: string
-  confidence: number
+  aiScore: number
+  heuristicsScore: number
+  confidence?: number
   relatedCves: string[]
   geoLocation: { country: string; city: string } | null
   asnInfo: string | null
