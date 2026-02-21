@@ -2,9 +2,10 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { alerts, type Severity } from "@/lib/mock-data"
+import type { Alert, Severity, IncidentStatus } from "@/lib/types"
 import { SeverityBadge } from "@/components/severity-badge"
 import { StatusBadge } from "@/components/status-badge"
+import { VerdictBadge } from "@/components/verdict-badge"
 import { cn } from "@/lib/utils"
 import { Search, Filter, ChevronRight } from "lucide-react"
 import { Input } from "@/components/ui/input"
@@ -18,16 +19,25 @@ const severityFilters: { key: Severity | "all"; label: string }[] = [
   { key: "info", label: "Info" },
 ]
 
-const statusFilters = ["all", "new", "investigating", "resolved", "false_positive"] as const
+const incidentStatusFilters: { key: IncidentStatus | "all"; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "unassigned", label: "Unassigned" },
+  { key: "in_progress", label: "In Progress" },
+  { key: "resolved", label: "Resolved" },
+]
 
-export function AlertsView() {
+interface AlertsViewProps {
+  initialAlerts: Alert[]
+}
+
+export function AlertsView({ initialAlerts }: AlertsViewProps) {
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all")
-  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [incidentStatusFilter, setIncidentStatusFilter] = useState<IncidentStatus | "all">("all")
   const [searchQuery, setSearchQuery] = useState("")
 
-  const filtered = alerts.filter((a) => {
+  const filtered = initialAlerts.filter((a) => {
     if (severityFilter !== "all" && a.severity !== severityFilter) return false
-    if (statusFilter !== "all" && a.status !== statusFilter) return false
+    if (incidentStatusFilter !== "all" && a.incidentStatus !== incidentStatusFilter) return false
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       return (
@@ -40,7 +50,7 @@ export function AlertsView() {
     return true
   })
 
-  const severityCounts = alerts.reduce(
+  const severityCounts = initialAlerts.reduce(
     (acc, a) => {
       acc[a.severity] = (acc[a.severity] || 0) + 1
       return acc
@@ -53,7 +63,7 @@ export function AlertsView() {
       {/* Severity filter pills */}
       <div className="flex flex-wrap items-center gap-2">
         {severityFilters.map((f) => {
-          const count = f.key === "all" ? alerts.length : severityCounts[f.key] || 0
+          const count = f.key === "all" ? initialAlerts.length : severityCounts[f.key] || 0
           return (
             <button
               key={f.key}
@@ -85,18 +95,18 @@ export function AlertsView() {
         </div>
         <div className="flex items-center gap-1 px-2 py-1 rounded-md glass-subtle">
           <Filter className="w-3 h-3 text-muted-foreground" />
-          {statusFilters.map((s) => (
+          {incidentStatusFilters.map((s) => (
             <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
+              key={s.key}
+              onClick={() => setIncidentStatusFilter(s.key)}
               className={cn(
                 "px-2 py-0.5 text-[11px] rounded transition-colors capitalize",
-                statusFilter === s
+                incidentStatusFilter === s.key
                   ? "bg-foreground/10 text-foreground"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {s === "false_positive" ? "FP" : s}
+              {s.label}
             </button>
           ))}
         </div>
@@ -113,9 +123,10 @@ export function AlertsView() {
                 <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5">Alert</th>
                 <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5 hidden md:table-cell">Source</th>
                 <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5 hidden lg:table-cell">MITRE Tactic</th>
-                <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5 hidden md:table-cell">Status</th>
+                <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5 hidden md:table-cell">Verdict</th>
+                <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5 hidden md:table-cell">Incident</th>
                 <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5 hidden lg:table-cell">Confidence</th>
-                <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5">Time</th>
+                <th className="text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5">Times</th>
                 <th className="w-8" />
               </tr>
             </thead>
@@ -152,14 +163,24 @@ export function AlertsView() {
                     <span className="text-[11px] text-muted-foreground">{alert.mitreTactic}</span>
                   </td>
                   <td className="px-4 py-3 hidden md:table-cell">
-                    <StatusBadge status={alert.status} />
+                    <VerdictBadge verdict={alert.verdict} />
+                  </td>
+                  <td className="px-4 py-3 hidden md:table-cell">
+                    <StatusBadge status={alert.incidentStatus} />
                   </td>
                   <td className="px-4 py-3 hidden lg:table-cell">
                     <div className="flex items-center gap-1.5">
                       <div className="w-12 h-1 rounded-full bg-foreground/10 overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-foreground/60"
-                          style={{ width: `${alert.enrichment.confidence}%` }}
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${alert.enrichment.confidence}%`,
+                            backgroundColor: alert.enrichment.confidence >= 80
+                              ? "hsl(142 71% 45%)"
+                              : alert.enrichment.confidence >= 50
+                                ? "hsl(45 93% 47%)"
+                                : "hsl(0 0% 45%)",
+                          }}
                         />
                       </div>
                       <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -168,12 +189,20 @@ export function AlertsView() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
-                      {new Date(alert.timestamp).toLocaleTimeString("en-US", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[10px] text-muted-foreground/80 tabular-nums whitespace-nowrap">
+                        Alert: {new Date(alert.timestamp).toLocaleTimeString("en-US", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/60 tabular-nums whitespace-nowrap">
+                        Ingested: {new Date(alert.ingestedAt || alert.timestamp).toLocaleTimeString("en-US", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
                   </td>
                   <td className="px-2 py-3">
                     <Link href={`/dashboard/alerts/${alert.id}`}>
@@ -184,7 +213,7 @@ export function AlertsView() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center">
+                  <td colSpan={10} className="px-4 py-12 text-center">
                     <p className="text-sm text-muted-foreground">No alerts match your filters</p>
                   </td>
                 </tr>
@@ -196,7 +225,7 @@ export function AlertsView() {
 
       <div className="flex items-center justify-between">
         <p className="text-[11px] text-muted-foreground">
-          Showing {filtered.length} of {alerts.length} alerts
+          Showing {filtered.length} of {initialAlerts.length} alerts
         </p>
       </div>
     </div>

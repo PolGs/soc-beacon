@@ -53,11 +53,16 @@
     --sidebar-border: 0 0% 15%;
     --sidebar-ring: 0 0% 40%;
 
-    --severity-critical: 0 0% 95%;
-    --severity-high: 0 0% 75%;
-    --severity-medium: 0 0% 55%;
-    --severity-low: 0 0% 40%;
-    --severity-info: 0 0% 30%;
+    --severity-critical: 0 72% 51%;
+    --severity-high: 25 95% 53%;
+    --severity-medium: 45 93% 47%;
+    --severity-low: 217 91% 60%;
+    --severity-info: 0 0% 45%;
+
+    --status-new: 217 91% 60%;
+    --status-investigating: 45 93% 47%;
+    --status-resolved: 142 71% 45%;
+    --status-fp: 0 0% 40%;
   }
 }
 

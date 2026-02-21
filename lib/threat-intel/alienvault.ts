@@ -1,0 +1,51 @@
+interface OTXResult {
+  pulseCount: number
+  reputation: number
+  summary: string
+}
+
+export async function lookupIP(ip: string, apiKey: string): Promise<OTXResult | null> {
+  try {
+    const res = await fetch(
+      `https://otx.alienvault.com/api/v1/indicators/IPv4/${ip}/general`,
+      {
+        headers: {
+          "X-OTX-API-KEY": apiKey,
+        },
+      }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+
+    return {
+      pulseCount: data.pulse_info?.count || 0,
+      reputation: data.reputation || 0,
+      summary: `OTX: ${data.pulse_info?.count || 0} threat pulses, reputation score: ${data.reputation || 0}`,
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function lookupDomain(domain: string, apiKey: string): Promise<OTXResult | null> {
+  try {
+    const res = await fetch(
+      `https://otx.alienvault.com/api/v1/indicators/domain/${domain}/general`,
+      {
+        headers: {
+          "X-OTX-API-KEY": apiKey,
+        },
+      }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+
+    return {
+      pulseCount: data.pulse_info?.count || 0,
+      reputation: data.reputation || 0,
+      summary: `OTX: ${data.pulse_info?.count || 0} threat pulses`,
+    }
+  } catch {
+    return null
+  }
+}

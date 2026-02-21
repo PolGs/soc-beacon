@@ -1,27 +1,13 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
-import { logEntries, type Severity } from "@/lib/mock-data"
+import type { LogEntry, Severity } from "@/lib/types"
 import { SeverityBadge } from "@/components/severity-badge"
 import { cn } from "@/lib/utils"
-import { Search, Pause, Play, ArrowDown, Filter } from "lucide-react"
+import { Search, Pause, Play, ArrowDown, Filter, Upload } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-
-const sourceFilters = [
-  "All",
-  "Firewall",
-  "EDR",
-  "Sysmon",
-  "Auth-Server",
-  "DNS-Monitor",
-  "IDS",
-  "WAF",
-  "Proxy",
-  "Cloud-Trail",
-  "Mail-Gateway",
-  "Web-Server",
-]
+import { LogUploadDialog } from "@/components/log-upload-dialog"
 
 const severityFilters: { key: Severity | "all"; label: string }[] = [
   { key: "all", label: "All" },
@@ -32,15 +18,24 @@ const severityFilters: { key: Severity | "all"; label: string }[] = [
   { key: "info", label: "Info" },
 ]
 
-export function LogExplorer() {
+interface LogExplorerProps {
+  initialLogs: LogEntry[]
+  sources: string[]
+  stats: { total: number; parsed: number; severityCounts: Record<string, number> }
+}
+
+export function LogExplorer({ initialLogs, sources, stats }: LogExplorerProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all")
   const [sourceFilter, setSourceFilter] = useState("All")
   const [isLive, setIsLive] = useState(true)
   const [showScrollDown, setShowScrollDown] = useState(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  const filtered = logEntries.filter((log) => {
+  const sourceFilters = ["All", ...sources]
+
+  const filtered = initialLogs.filter((log) => {
     if (severityFilter !== "all" && log.severity !== severityFilter) return false
     if (sourceFilter !== "All" && !log.source.toLowerCase().includes(sourceFilter.toLowerCase()))
       return false
@@ -73,19 +68,11 @@ export function LogExplorer() {
     }
   }, [isLive, filtered.length])
 
-  const severityCounts = logEntries.reduce(
-    (acc, log) => {
-      acc[log.severity] = (acc[log.severity] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>
-  )
-
   return (
     <div className="flex flex-col gap-4">
       {/* Controls bar */}
       <div className="flex flex-col gap-3">
-        {/* Top row: search + live toggle */}
+        {/* Top row: search + live toggle + upload */}
         <div className="flex items-center gap-3">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
@@ -110,7 +97,7 @@ export function LogExplorer() {
           >
             {isLive ? (
               <>
-                <span className="w-1.5 h-1.5 rounded-full bg-foreground animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Live
                 <Pause className="w-3 h-3" />
               </>
@@ -122,12 +109,22 @@ export function LogExplorer() {
               </>
             )}
           </Button>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 px-3 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+            onClick={() => setUploadOpen(true)}
+          >
+            <Upload className="w-3 h-3" />
+            Upload
+          </Button>
         </div>
 
         {/* Severity filters */}
         <div className="flex items-center gap-2 flex-wrap">
           {severityFilters.map((f) => {
-            const count = f.key === "all" ? logEntries.length : severityCounts[f.key] || 0
+            const count = f.key === "all" ? stats.total : stats.severityCounts[f.key] || 0
             return (
               <button
                 key={f.key}
@@ -147,7 +144,7 @@ export function LogExplorer() {
 
           <span className="w-px h-5 bg-border/50 mx-1" />
 
-          {/* Source filter dropdown-like */}
+          {/* Source filter dropdown */}
           <div className="flex items-center gap-1 px-2 py-1 rounded-md glass-subtle">
             <Filter className="w-3 h-3 text-muted-foreground" />
             <select
@@ -226,21 +223,20 @@ export function LogExplorer() {
       {/* Footer stats */}
       <div className="flex items-center justify-between">
         <p className="text-[11px] text-muted-foreground">
-          Showing {filtered.length} of {logEntries.length} log entries
+          Showing {filtered.length} of {stats.total} log entries
         </p>
         <div className="flex items-center gap-4">
           <span className="text-[11px] text-muted-foreground">
-            Ingestion rate:{" "}
-            <span className="font-mono text-foreground/70 tabular-nums">~842</span> eps
-          </span>
-          <span className="text-[11px] text-muted-foreground">
             Parsed:{" "}
             <span className="font-mono text-foreground/70 tabular-nums">
-              {logEntries.filter((l) => l.parsed).length}/{logEntries.length}
+              {stats.parsed}/{stats.total}
             </span>
           </span>
         </div>
       </div>
+
+      {/* Upload dialog */}
+      <LogUploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
     </div>
   )
 }

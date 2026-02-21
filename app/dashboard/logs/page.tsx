@@ -1,6 +1,13 @@
 import { LogExplorer } from "@/components/log-explorer"
+import { getLogs, getLogSources, getLogStats } from "@/lib/db/logs"
 
-export default function LogsPage() {
+export default async function LogsPage() {
+  const [logs, sources, stats] = await Promise.all([
+    getLogs({ limit: 200 }),
+    getLogSources(),
+    getLogStats(),
+  ])
+
   return (
     <div className="p-6 flex flex-col gap-6">
       <div>
@@ -9,7 +16,7 @@ export default function LogsPage() {
           Real-time log stream with filtering and search capabilities
         </p>
       </div>
-      <LogExplorer />
+      <LogExplorer initialLogs={logs} sources={sources} stats={stats} />
     </div>
   )
 }

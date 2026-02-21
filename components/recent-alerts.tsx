@@ -1,12 +1,15 @@
 import Link from "next/link"
-import { alerts } from "@/lib/mock-data"
+import type { Alert } from "@/lib/types"
 import { SeverityBadge } from "@/components/severity-badge"
 import { StatusBadge } from "@/components/status-badge"
+import { VerdictBadge } from "@/components/verdict-badge"
 import { ArrowRight } from "lucide-react"
 
-export function RecentAlerts() {
-  const recentAlerts = alerts.slice(0, 6)
+interface RecentAlertsProps {
+  alerts: Alert[]
+}
 
+export function RecentAlerts({ alerts }: RecentAlertsProps) {
   return (
     <div className="glass rounded-lg">
       <div className="flex items-center justify-between p-4 pb-0">
@@ -30,33 +33,25 @@ export function RecentAlerts() {
                 <th className="text-[11px] font-medium text-muted-foreground text-left px-3 py-2">Severity</th>
                 <th className="text-[11px] font-medium text-muted-foreground text-left px-3 py-2">Alert</th>
                 <th className="text-[11px] font-medium text-muted-foreground text-left px-3 py-2 hidden md:table-cell">Source</th>
-                <th className="text-[11px] font-medium text-muted-foreground text-left px-3 py-2 hidden lg:table-cell">Status</th>
+                <th className="text-[11px] font-medium text-muted-foreground text-left px-3 py-2 hidden lg:table-cell">Verdict</th>
+                <th className="text-[11px] font-medium text-muted-foreground text-left px-3 py-2 hidden lg:table-cell">Incident</th>
                 <th className="text-[11px] font-medium text-muted-foreground text-left px-3 py-2 hidden md:table-cell">Time</th>
               </tr>
             </thead>
             <tbody>
-              {recentAlerts.map((alert) => (
-                <tr
-                  key={alert.id}
-                  className="border-b border-border/20 last:border-0 hover:bg-foreground/[0.02] transition-colors"
-                >
+              {alerts.map((alert) => (
+                <tr key={alert.id} className="border-b border-border/20 last:border-0 hover:bg-foreground/[0.02] transition-colors">
+                  <td className="px-3 py-2.5"><SeverityBadge severity={alert.severity} /></td>
                   <td className="px-3 py-2.5">
-                    <SeverityBadge severity={alert.severity} />
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <Link
-                      href={`/dashboard/alerts/${alert.id}`}
-                      className="text-xs text-foreground/90 hover:text-foreground transition-colors font-medium"
-                    >
+                    <Link href={`/dashboard/alerts/${alert.id}`} className="text-xs text-foreground/90 hover:text-foreground transition-colors font-medium">
                       {alert.title}
                     </Link>
                   </td>
                   <td className="px-3 py-2.5 hidden md:table-cell">
                     <span className="text-[11px] text-muted-foreground font-mono">{alert.source}</span>
                   </td>
-                  <td className="px-3 py-2.5 hidden lg:table-cell">
-                    <StatusBadge status={alert.status} />
-                  </td>
+                  <td className="px-3 py-2.5 hidden lg:table-cell"><VerdictBadge verdict={alert.verdict} /></td>
+                  <td className="px-3 py-2.5 hidden lg:table-cell"><StatusBadge status={alert.incidentStatus} /></td>
                   <td className="px-3 py-2.5 hidden md:table-cell">
                     <span className="text-[11px] text-muted-foreground tabular-nums">
                       {new Date(alert.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}

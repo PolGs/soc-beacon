@@ -1,9 +1,11 @@
 "use client"
 
-import { sourceDistribution } from "@/lib/mock-data"
+interface SourceDistributionProps {
+  data: Array<{ name: string; value: number }>
+}
 
-export function SourceDistribution() {
-  const total = sourceDistribution.reduce((acc, s) => acc + s.value, 0)
+export function SourceDistribution({ data }: SourceDistributionProps) {
+  const total = data.reduce((acc, s) => acc + s.value, 0)
 
   return (
     <div className="glass rounded-lg p-4">
@@ -13,8 +15,8 @@ export function SourceDistribution() {
       </div>
 
       <div className="flex flex-col gap-3">
-        {sourceDistribution.map((source, i) => {
-          const pct = Math.round((source.value / total) * 100)
+        {data.map((source, i) => {
+          const pct = total > 0 ? Math.round((source.value / total) * 100) : 0
           const opacity = 1 - i * 0.14
           return (
             <div key={source.name} className="flex flex-col gap-1.5">
@@ -24,8 +26,12 @@ export function SourceDistribution() {
               </div>
               <div className="h-1.5 rounded-full bg-foreground/5 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-foreground transition-all duration-500"
-                  style={{ width: `${pct}%`, opacity }}
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: `hsl(217 91% ${55 + i * 8}%)`,
+                    opacity,
+                  }}
                 />
               </div>
             </div>

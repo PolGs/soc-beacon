@@ -1,8 +1,10 @@
-import { alerts } from "@/lib/mock-data"
+import { getAlertById } from "@/lib/db/alerts"
 import { notFound } from "next/navigation"
 import { AlertDetail } from "@/components/alert-detail"
 import Link from "next/link"
 import { ChevronLeft } from "lucide-react"
+
+export const dynamic = "force-dynamic"
 
 export default async function AlertDetailPage({
   params,
@@ -10,7 +12,7 @@ export default async function AlertDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const alert = alerts.find((a) => a.id === id)
+  const alert = await getAlertById(id)
   if (!alert) notFound()
 
   return (

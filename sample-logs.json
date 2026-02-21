@@ -1,0 +1,74 @@
+[
+  {
+    "timestamp": "2026-02-15T14:30:00Z",
+    "source": "Firewall-01",
+    "message": "DROP: SRC=45.155.205.233 DST=10.0.1.50 PROTO=TCP SPT=443 DPT=8443 - Matched rule: Cobalt Strike beacon callback detected",
+    "severity": "critical"
+  },
+  {
+    "timestamp": "2026-02-15T14:31:15Z",
+    "source": "EDR-Agent-03",
+    "message": "ALERT: Process injection detected - powershell.exe -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQA - Parent: WINWORD.EXE (PID:2234) - User: finance_user",
+    "severity": "high"
+  },
+  {
+    "timestamp": "2026-02-15T14:32:00Z",
+    "source": "IDS-Sensor-01",
+    "message": "SQL Injection attempt: GET /api/search?q=1' UNION SELECT username,password FROM users-- HTTP/1.1 from 203.0.113.42",
+    "severity": "high"
+  },
+  {
+    "timestamp": "2026-02-15T14:32:30Z",
+    "source": "Auth-Server",
+    "message": "Failed authentication for user 'admin' from 10.0.4.88 via Kerberos - 47 failed attempts in 5 minutes - Account lockout triggered",
+    "severity": "high"
+  },
+  {
+    "timestamp": "2026-02-15T14:33:00Z",
+    "source": "DNS-Monitor",
+    "message": "Suspicious DNS query: RVZGQ3DPORSXG5BOOR4XAZLTNF2.exfil.malware-c2.xyz IN TXT from 10.0.3.77 - possible DNS tunneling exfiltration",
+    "severity": "medium"
+  },
+  {
+    "timestamp": "2026-02-15T14:33:30Z",
+    "source": "Proxy-01",
+    "message": "BLOCKED: Connection to known TOR exit node 185.220.101.48 from internal host 10.0.2.55 - Category: Anonymizer",
+    "severity": "high"
+  },
+  {
+    "timestamp": "2026-02-15T14:34:00Z",
+    "source": "Sysmon-Agent-12",
+    "message": "Process Create: mimikatz.exe sekurlsa::logonpasswords - PID:6644 - User: SYSTEM - Parent: cmd.exe (PID:5520)",
+    "severity": "critical"
+  },
+  {
+    "timestamp": "2026-02-15T14:34:30Z",
+    "source": "WAF-01",
+    "message": "Blocked 1,247 requests from 45.33.32.156 in 10 minutes - Nikto scanner fingerprint detected - port scan reconnaissance",
+    "severity": "medium"
+  },
+  {
+    "timestamp": "2026-02-15T14:35:00Z",
+    "source": "Mail-Gateway",
+    "message": "Quarantined: phishing email from hr-department@company-update.xyz with macro-enabled .xlsm attachment - Subject: 'Urgent: Payroll Update Required'",
+    "severity": "medium"
+  },
+  {
+    "timestamp": "2026-02-15T14:35:30Z",
+    "source": "Firewall-02",
+    "message": "Connection accepted from 10.0.1.100:49222 to 10.0.1.101:445 proto SMB - lateral movement pattern detected via PsExec",
+    "severity": "high"
+  },
+  {
+    "timestamp": "2026-02-15T14:36:00Z",
+    "source": "Cloud-Trail",
+    "message": "iam.amazonaws.com CreateAccessKey - User: compromised-dev - New access key created for root account from unusual IP 91.234.99.100",
+    "severity": "high"
+  },
+  {
+    "timestamp": "2026-02-15T14:36:30Z",
+    "source": "EDR-Agent-08",
+    "message": "Ransomware indicator: Multiple files encrypted with .locked extension in C:\\Users\\jsmith\\Documents - bitcoin payment demand detected",
+    "severity": "critical"
+  }
+]

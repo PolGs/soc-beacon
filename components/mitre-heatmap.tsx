@@ -1,7 +1,9 @@
-import { topMitreTechniques } from "@/lib/mock-data"
+interface MitreHeatmapProps {
+  data: Array<{ technique: string; count: number }>
+}
 
-export function MitreHeatmap() {
-  const max = Math.max(...topMitreTechniques.map((t) => t.count))
+export function MitreHeatmap({ data }: MitreHeatmapProps) {
+  const max = data.length > 0 ? Math.max(...data.map((t) => t.count)) : 1
 
   return (
     <div className="glass rounded-lg p-4">
@@ -10,19 +12,23 @@ export function MitreHeatmap() {
         <p className="text-[11px] text-muted-foreground mt-0.5">Top techniques detected</p>
       </div>
       <div className="flex flex-col gap-1.5">
-        {topMitreTechniques.slice(0, 6).map((item) => {
+        {data.slice(0, 6).map((item) => {
           const intensity = item.count / max
+          // Interpolate from blue (low) through amber to red (high)
+          const hue = 25 - intensity * 25 // 25 (orange) → 0 (red)
+          const sat = 60 + intensity * 30
+          const light = 50 + intensity * 10
           return (
             <div
               key={item.technique}
               className="flex items-center gap-2 px-2 py-1.5 rounded"
               style={{
-                backgroundColor: `hsla(0, 0%, ${90 - intensity * 60}%, ${intensity * 0.15})`,
+                backgroundColor: `hsla(${hue}, ${sat}%, ${light}%, ${intensity * 0.12})`,
               }}
             >
               <span
-                className="text-[11px] font-mono tabular-nums shrink-0"
-                style={{ color: `hsl(0 0% ${40 + intensity * 50}%)` }}
+                className="text-[11px] font-mono tabular-nums shrink-0 font-medium"
+                style={{ color: `hsl(${hue} ${sat}% ${light}%)` }}
               >
                 {item.count}
               </span>

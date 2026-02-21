@@ -1,27 +1,22 @@
 import { cn } from "@/lib/utils"
+import type { IncidentStatus } from "@/lib/types"
 
-type AlertStatus = "new" | "investigating" | "resolved" | "false_positive"
-
-const statusConfig: Record<AlertStatus, { label: string; className: string }> = {
-  new: {
-    label: "New",
-    className: "border-foreground/40 text-foreground/80",
+const statusConfig: Record<IncidentStatus, { label: string; className: string }> = {
+  unassigned: {
+    label: "Unassigned",
+    className: "border-[hsl(var(--status-new))]/40 text-[hsl(var(--status-new))] bg-[hsl(var(--status-new))]/10",
   },
-  investigating: {
-    label: "Investigating",
-    className: "border-foreground/25 text-foreground/60",
+  in_progress: {
+    label: "In Progress",
+    className: "border-[hsl(var(--status-investigating))]/40 text-[hsl(var(--status-investigating))] bg-[hsl(var(--status-investigating))]/10",
   },
   resolved: {
     label: "Resolved",
-    className: "border-foreground/15 text-foreground/40",
-  },
-  false_positive: {
-    label: "False Positive",
-    className: "border-foreground/10 text-foreground/30",
+    className: "border-[hsl(var(--status-resolved))]/40 text-[hsl(var(--status-resolved))] bg-[hsl(var(--status-resolved))]/10",
   },
 }
 
-export function StatusBadge({ status }: { status: AlertStatus }) {
+export function StatusBadge({ status }: { status: IncidentStatus }) {
   const config = statusConfig[status]
   return (
     <span

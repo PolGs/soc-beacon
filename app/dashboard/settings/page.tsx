@@ -1,6 +1,13 @@
 import { SettingsView } from "@/components/settings-view"
+import { getAllSettings } from "@/lib/db/settings"
+import { getThreatFeeds } from "@/lib/db/threat-feeds"
+import { getYaraRules } from "@/lib/db/yara-rules"
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const settings = await getAllSettings()
+  const feeds = await getThreatFeeds()
+  const yaraRules = await getYaraRules()
+
   return (
     <div className="p-6 flex flex-col gap-6">
       <div>
@@ -9,7 +16,11 @@ export default function SettingsPage() {
           Configure SOC Beacon integrations, ingestion, and AI enrichment
         </p>
       </div>
-      <SettingsView />
+      <SettingsView
+        initialSettings={settings}
+        initialFeeds={feeds}
+        initialYaraRules={yaraRules}
+      />
     </div>
   )
 }

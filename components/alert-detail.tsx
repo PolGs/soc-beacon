@@ -1,8 +1,9 @@
 "use client"
 
-import type { Alert } from "@/lib/mock-data"
+import type { Alert, IncidentStatus, AlertVerdict } from "@/lib/types"
 import { SeverityBadge } from "@/components/severity-badge"
 import { StatusBadge } from "@/components/status-badge"
+import { VerdictBadge } from "@/components/verdict-badge"
 import {
   Brain,
   Shield,
@@ -14,9 +15,15 @@ import {
   Lightbulb,
   Copy,
   Check,
+  RefreshCw,
+  Search,
+  Loader2,
+  Trash2,
 } from "lucide-react"
-import { useState } from "react"
+import { useState, useTransition } from "react"
+import { useRouter } from "next/navigation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { deleteAlertAction, updateAlertIncidentStatusAction, updateAlertVerdictAction, triggerEnrichmentAction, triggerThreatIntelAction } from "@/app/actions"
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -39,6 +46,58 @@ function CopyButton({ text }: { text: string }) {
 }
 
 export function AlertDetail({ alert }: { alert: Alert }) {
+  const router = useRouter()
+  const [isPending, startTransition] = useTransition()
+  const [enriching, setEnriching] = useState(false)
+  const [threatIntelLoading, setThreatIntelLoading] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleIncidentStatusChange = (incidentStatus: IncidentStatus) => {
+    startTransition(() => {
+      updateAlertIncidentStatusAction(alert.id, incidentStatus)
+    })
+  }
+
+  const handleVerdictChange = (verdict: AlertVerdict) => {
+    startTransition(() => {
+      updateAlertVerdictAction(alert.id, verdict)
+    })
+  }
+
+  const handleReEnrich = async () => {
+    setEnriching(true)
+    try {
+      await triggerEnrichmentAction(alert.id)
+    } finally {
+      setEnriching(false)
+    }
+  }
+
+  const handleThreatIntel = async () => {
+    setThreatIntelLoading(true)
+    try {
+      await triggerThreatIntelAction(alert.id)
+    } finally {
+      setThreatIntelLoading(false)
+    }
+  }
+
+  const handleDeleteAlert = async () => {
+    const confirmed = window.confirm(`Delete alert ${alert.id}? This cannot be undone.`)
+    if (!confirmed) return
+
+    setDeleting(true)
+    try {
+      const result = await deleteAlertAction(alert.id)
+      if (result.success) {
+        router.push("/dashboard/alerts")
+        router.refresh()
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -47,7 +106,8 @@ export function AlertDetail({ alert }: { alert: Alert }) {
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-3">
               <SeverityBadge severity={alert.severity} />
-              <StatusBadge status={alert.status} />
+              <VerdictBadge verdict={alert.verdict} />
+              <StatusBadge status={alert.incidentStatus} />
               <span className="text-[11px] font-mono text-muted-foreground">{alert.id}</span>
             </div>
             <h1 className="text-base font-semibold text-foreground">{alert.title}</h1>
@@ -55,21 +115,63 @@ export function AlertDetail({ alert }: { alert: Alert }) {
               {alert.description}
             </p>
           </div>
-          <div className="flex flex-col items-end gap-1.5 shrink-0">
-            <span className="text-[11px] text-muted-foreground">
-              {new Date(alert.timestamp).toLocaleString()}
-            </span>
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <div className="flex flex-col items-end">
+              <span className="text-[11px] text-muted-foreground">
+                Alert: {new Date(alert.timestamp).toLocaleString()}
+              </span>
+              <span className="text-[11px] text-muted-foreground/70">
+                Ingested: {new Date(alert.ingestedAt || alert.timestamp).toLocaleString()}
+              </span>
+            </div>
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] text-muted-foreground">Confidence</span>
               <div className="w-16 h-1.5 rounded-full bg-foreground/10 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-foreground/70"
-                  style={{ width: `${alert.enrichment.confidence}%` }}
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${alert.enrichment.confidence}%`,
+                    backgroundColor: alert.enrichment.confidence >= 80
+                      ? "hsl(142 71% 45%)"
+                      : alert.enrichment.confidence >= 50
+                        ? "hsl(45 93% 47%)"
+                        : "hsl(0 0% 45%)",
+                  }}
                 />
               </div>
               <span className="text-xs font-mono text-foreground tabular-nums">
                 {alert.enrichment.confidence}%
               </span>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <select
+                value={alert.verdict}
+                onChange={(e) => handleVerdictChange(e.target.value as AlertVerdict)}
+                disabled={isPending}
+                className="h-8 rounded-md border border-border/50 bg-background/60 px-2 text-[11px] text-foreground"
+              >
+                <option value="malicious">Malicious</option>
+                <option value="suspicious">Suspicious</option>
+                <option value="false_positive">False Positive</option>
+              </select>
+              <select
+                value={alert.incidentStatus}
+                onChange={(e) => handleIncidentStatusChange(e.target.value as IncidentStatus)}
+                disabled={isPending}
+                className="h-8 rounded-md border border-border/50 bg-background/60 px-2 text-[11px] text-foreground"
+              >
+                <option value="unassigned">Unassigned</option>
+                <option value="in_progress">In Progress</option>
+                <option value="resolved">Resolved</option>
+              </select>
+              <button
+                onClick={handleDeleteAlert}
+                disabled={deleting}
+                className="h-8 rounded-md border border-[hsl(var(--severity-critical))]/40 bg-[hsl(var(--severity-critical))]/10 px-2 text-[11px] text-[hsl(var(--severity-critical))] hover:bg-[hsl(var(--severity-critical))]/20 disabled:opacity-60 flex items-center gap-1"
+              >
+                {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                Delete
+              </button>
             </div>
           </div>
         </div>
@@ -118,6 +220,26 @@ export function AlertDetail({ alert }: { alert: Alert }) {
 
         <TabsContent value="analysis" className="mt-4">
           <div className="glass rounded-lg p-5 flex flex-col gap-5">
+            {/* Re-enrich buttons */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleReEnrich}
+                disabled={enriching}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+              >
+                {enriching ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                Re-analyze with LLM
+              </button>
+              <button
+                onClick={handleThreatIntel}
+                disabled={threatIntelLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-50"
+              >
+                {threatIntelLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Search className="w-3 h-3" />}
+                Lookup Threat Intel
+              </button>
+            </div>
+
             {/* AI Analysis */}
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">

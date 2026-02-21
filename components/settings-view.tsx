@@ -9,6 +9,16 @@ import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
 import {
+  saveSettingsAction,
+  changePasswordAction,
+  addThreatFeedAction,
+  removeThreatFeedAction,
+  toggleThreatFeedAction,
+  toggleYaraRuleAction,
+  updateThreatFeedApiKeyAction,
+} from "@/app/actions"
+import type { ThreatFeed, YaraRule } from "@/lib/types"
+import {
   Radio,
   Key,
   Server,
@@ -23,6 +33,8 @@ import {
   Trash2,
   User,
   Lock,
+  HelpCircle,
+  Loader2,
 } from "lucide-react"
 
 function SectionCard({
@@ -85,55 +97,65 @@ function PasswordInput({
   )
 }
 
-export function SettingsView() {
+interface SettingsViewProps {
+  initialSettings: Record<string, unknown>
+  initialFeeds: ThreatFeed[]
+  initialYaraRules: YaraRule[]
+}
+
+export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }: SettingsViewProps) {
+  const general = (initialSettings.general || {}) as Record<string, unknown>
+  const syslog = (initialSettings.syslog || {}) as Record<string, unknown>
+  const api = (initialSettings.api || {}) as Record<string, unknown>
+  const llm = (initialSettings.llm || {}) as Record<string, unknown>
+  const yara = (initialSettings.yara || {}) as Record<string, unknown>
+  const sigma = (initialSettings.sigma || {}) as Record<string, unknown>
+  const syslogOut = (initialSettings.syslogOutput || {}) as Record<string, unknown>
+
   // General
-  const [instanceName, setInstanceName] = useState("SOC Beacon - Production")
-  const [retentionDays, setRetentionDays] = useState("90")
+  const [instanceName, setInstanceName] = useState((general.instanceName as string) || "SOC Beacon - Production")
+  const [retentionDays, setRetentionDays] = useState(String(general.retentionDays || 90))
 
   // Syslog Input
-  const [syslogEnabled, setSyslogEnabled] = useState(true)
-  const [syslogPort, setSyslogPort] = useState("514")
-  const [syslogProtocol, setSyslogProtocol] = useState<"udp" | "tcp" | "both">("both")
-  const [syslogTls, setSyslogTls] = useState(false)
+  const [syslogEnabled, setSyslogEnabled] = useState(syslog.enabled !== false)
+  const [syslogPort, setSyslogPort] = useState(String(syslog.port || 1514))
+  const [syslogProtocol, setSyslogProtocol] = useState<"udp" | "tcp" | "both">((syslog.protocol as "udp" | "tcp" | "both") || "both")
+  const [syslogTls, setSyslogTls] = useState(!!(syslog.tls))
 
   // API Ingestion
-  const [apiEnabled, setApiEnabled] = useState(true)
-  const [apiPort, setApiPort] = useState("8443")
-  const [apiKey, setApiKey] = useState("sk-beacon-prod-a1b2c3d4e5f6g7h8")
+  const [apiEnabled, setApiEnabled] = useState(api.enabled !== false)
+  const [apiPort, setApiPort] = useState(String(api.port || 8443))
+  const [apiKey, setApiKey] = useState((api.apiKey as string) || "")
 
   // LLM Configuration
-  const [llmProvider, setLlmProvider] = useState<"openai" | "anthropic" | "local" | "custom">("openai")
-  const [llmApiKey, setLlmApiKey] = useState("")
-  const [llmModel, setLlmModel] = useState("gpt-4o")
-  const [llmEndpoint, setLlmEndpoint] = useState("https://api.openai.com/v1")
-  const [llmMaxTokens, setLlmMaxTokens] = useState("4096")
-  const [llmTemperature, setLlmTemperature] = useState("0.1")
-  const [autoEnrich, setAutoEnrich] = useState(true)
+  const llmProvider: "openai" = "openai"
+  const [llmApiKey, setLlmApiKey] = useState((llm.apiKey as string) || "")
+  const [llmModel, setLlmModel] = useState((llm.model as string) || "gpt-4.1-nano")
+  const [llmEndpoint, setLlmEndpoint] = useState((llm.endpoint as string) || "https://api.openai.com/v1")
+  const [llmMaxTokens, setLlmMaxTokens] = useState(String(llm.maxTokens || 700))
+  const [llmTemperature, setLlmTemperature] = useState(String(llm.temperature || 0.1))
+  const [autoEnrich, setAutoEnrich] = useState(llm.autoEnrich !== false)
+  const [analysisAgents, setAnalysisAgents] = useState(String(llm.analysisAgents || 3))
+  const [autoStatusThreshold, setAutoStatusThreshold] = useState(String(llm.autoStatusConfidenceThreshold || 90))
 
   // YARA Rules
-  const [yaraEnabled, setYaraEnabled] = useState(true)
-  const [yaraRulesPath, setYaraRulesPath] = useState("/etc/socbeacon/rules/yara/")
-  const [yaraAutoUpdate, setYaraAutoUpdate] = useState(true)
-  const [customYaraRules, setCustomYaraRules] = useState([
-    { name: "CobaltStrike_Beacon_Encoded", enabled: true },
-    { name: "Mimikatz_Memory_Signature", enabled: true },
-    { name: "PowerShell_Download_Cradle", enabled: true },
-    { name: "OLE_Macro_Suspicious", enabled: true },
-    { name: "Ransomware_Note_Strings", enabled: true },
-  ])
+  const [yaraEnabled, setYaraEnabled] = useState(yara.enabled !== false)
+  const [yaraAutoUpdate, setYaraAutoUpdate] = useState(!!(yara.autoUpdate))
+  const [customYaraRules, setCustomYaraRules] = useState(initialYaraRules)
+
+  // Sigma Rules
+  const [sigmaEnabled, setSigmaEnabled] = useState(!!sigma.enabled)
+  const [sigmaRulesPath, setSigmaRulesPath] = useState((sigma.rulesPath as string) || "")
+  const [sigmaMaxRules, setSigmaMaxRules] = useState(String(sigma.maxRules || 500))
 
   // Syslog Output
-  const [syslogOutputEnabled, setSyslogOutputEnabled] = useState(true)
-  const [syslogOutputHost, setSyslogOutputHost] = useState("10.0.0.50")
-  const [syslogOutputPort, setSyslogOutputPort] = useState("5514")
-  const [syslogOutputFormat, setSyslogOutputFormat] = useState<"cef" | "leef" | "json">("cef")
+  const [syslogOutputEnabled, setSyslogOutputEnabled] = useState(!!(syslogOut.enabled))
+  const [syslogOutputHost, setSyslogOutputHost] = useState((syslogOut.host as string) || "10.0.0.50")
+  const [syslogOutputPort, setSyslogOutputPort] = useState(String(syslogOut.port || 5514))
+  const [syslogOutputFormat, setSyslogOutputFormat] = useState<"cef" | "leef" | "json">((syslogOut.format as "cef" | "leef" | "json") || "cef")
 
   // Threat Intel Feeds
-  const [threatFeeds, setThreatFeeds] = useState([
-    { name: "AlienVault OTX", url: "https://otx.alienvault.com/api/v1/", enabled: true },
-    { name: "Abuse.ch URLhaus", url: "https://urlhaus-api.abuse.ch/v1/", enabled: true },
-    { name: "VirusTotal", url: "https://www.virustotal.com/api/v3/", enabled: false },
-  ])
+  const [threatFeeds, setThreatFeeds] = useState(initialFeeds)
   const [newFeedName, setNewFeedName] = useState("")
   const [newFeedUrl, setNewFeedUrl] = useState("")
 
@@ -142,27 +164,57 @@ export function SettingsView() {
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
 
-  const handleSave = (section: string) => {
-    toast.success(`${section} settings saved`, {
-      description: "Changes will take effect immediately.",
-    })
+  // Loading states
+  const [saving, setSaving] = useState<string | null>(null)
+
+  const handleSave = async (section: string, data: unknown) => {
+    setSaving(section)
+    try {
+      const result = await saveSettingsAction(section, JSON.stringify(data))
+      if (result.success) {
+        toast.success(`${section} settings saved`, { description: "Changes will take effect immediately." })
+      } else {
+        toast.error(`Failed to save: ${result.error}`)
+      }
+    } catch {
+      toast.error("Failed to save settings")
+    }
+    setSaving(null)
   }
 
-  const handleAddFeed = () => {
+  const handleAddFeed = async () => {
     if (newFeedName && newFeedUrl) {
-      setThreatFeeds([...threatFeeds, { name: newFeedName, url: newFeedUrl, enabled: true }])
-      setNewFeedName("")
-      setNewFeedUrl("")
-      toast.success("Threat feed added")
+      const result = await addThreatFeedAction({ name: newFeedName, url: newFeedUrl })
+      if (result.success) {
+        setThreatFeeds([...threatFeeds, { id: result.id!, name: newFeedName, url: newFeedUrl, apiKey: "", enabled: true }])
+        setNewFeedName("")
+        setNewFeedUrl("")
+        toast.success("Threat feed added")
+      }
     }
   }
 
-  const handleRemoveFeed = (index: number) => {
+  const handleRemoveFeed = async (id: string, index: number) => {
+    await removeThreatFeedAction(id)
     setThreatFeeds(threatFeeds.filter((_, i) => i !== index))
     toast.success("Threat feed removed")
   }
 
-  const handlePasswordChange = () => {
+  const handleToggleFeed = async (id: string, index: number, enabled: boolean) => {
+    await toggleThreatFeedAction(id, enabled)
+    const updated = [...threatFeeds]
+    updated[index] = { ...updated[index], enabled }
+    setThreatFeeds(updated)
+  }
+
+  const handleToggleYaraRule = async (id: string, index: number, enabled: boolean) => {
+    await toggleYaraRuleAction(id, enabled)
+    const updated = [...customYaraRules]
+    updated[index] = { ...updated[index], enabled }
+    setCustomYaraRules(updated)
+  }
+
+  const handlePasswordChange = async () => {
     if (!currentPassword) {
       toast.error("Current password is required")
       return
@@ -175,119 +227,85 @@ export function SettingsView() {
       toast.error("Password must be at least 8 characters")
       return
     }
-    toast.success("Password updated successfully")
-    setCurrentPassword("")
-    setNewPassword("")
-    setConfirmPassword("")
+    setSaving("password")
+    const result = await changePasswordAction(currentPassword, newPassword)
+    if (result.success) {
+      toast.success("Password updated successfully")
+      setCurrentPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+    } else {
+      toast.error(result.error || "Failed to update password")
+    }
+    setSaving(null)
   }
+
+  const SaveButton = ({ section, onClick }: { section: string; onClick: () => void }) => (
+    <Button
+      size="sm"
+      className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
+      onClick={onClick}
+      disabled={saving === section}
+    >
+      {saving === section ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1.5" />}
+      Save
+    </Button>
+  )
 
   return (
     <Tabs defaultValue="general" className="w-full">
       <TabsList className="bg-card/60 border border-border/50 h-9 p-1 flex-wrap">
-        <TabsTrigger
-          value="general"
-          className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
-        >
-          <Radio className="w-3.5 h-3.5 mr-1.5" />
-          General
+        <TabsTrigger value="general" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <Radio className="w-3.5 h-3.5 mr-1.5" />General
         </TabsTrigger>
-        <TabsTrigger
-          value="ingestion"
-          className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
-        >
-          <Server className="w-3.5 h-3.5 mr-1.5" />
-          Ingestion
+        <TabsTrigger value="ingestion" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <Server className="w-3.5 h-3.5 mr-1.5" />Ingestion
         </TabsTrigger>
-        <TabsTrigger
-          value="ai"
-          className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
-        >
-          <Key className="w-3.5 h-3.5 mr-1.5" />
-          AI / LLM
+        <TabsTrigger value="ai" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <Key className="w-3.5 h-3.5 mr-1.5" />AI / LLM
         </TabsTrigger>
-        <TabsTrigger
-          value="yara"
-          className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
-        >
-          <FileCode className="w-3.5 h-3.5 mr-1.5" />
-          YARA Rules
+        <TabsTrigger value="yara" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <FileCode className="w-3.5 h-3.5 mr-1.5" />YARA Rules
         </TabsTrigger>
-        <TabsTrigger
-          value="output"
-          className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
-        >
-          <Send className="w-3.5 h-3.5 mr-1.5" />
-          Output
+        <TabsTrigger value="sigma" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <Shield className="w-3.5 h-3.5 mr-1.5" />Sigma
         </TabsTrigger>
-        <TabsTrigger
-          value="threatintel"
-          className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
-        >
-          <Shield className="w-3.5 h-3.5 mr-1.5" />
-          Threat Intel
+        <TabsTrigger value="output" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <Send className="w-3.5 h-3.5 mr-1.5" />Output
         </TabsTrigger>
-        <TabsTrigger
-          value="auth"
-          className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
-        >
-          <Lock className="w-3.5 h-3.5 mr-1.5" />
-          Authentication
+        <TabsTrigger value="threatintel" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <Shield className="w-3.5 h-3.5 mr-1.5" />Threat Intel
+        </TabsTrigger>
+        <TabsTrigger value="auth" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <Lock className="w-3.5 h-3.5 mr-1.5" />Authentication
+        </TabsTrigger>
+        <TabsTrigger value="help" className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7">
+          <HelpCircle className="w-3.5 h-3.5 mr-1.5" />Help
         </TabsTrigger>
       </TabsList>
 
       {/* General */}
       <TabsContent value="general" className="mt-4 flex flex-col gap-5">
-        <SectionCard
-          title="Instance Configuration"
-          description="General settings for this SOC Beacon instance"
-          icon={Radio}
-        >
+        <SectionCard title="Instance Configuration" description="General settings for this SOC Beacon instance" icon={Radio}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="instanceName" className="text-[11px] text-muted-foreground">
-                Instance Name
-              </Label>
-              <Input
-                id="instanceName"
-                value={instanceName}
-                onChange={(e) => setInstanceName(e.target.value)}
-                className="bg-background/60 border-border/50 h-8 text-xs placeholder:text-muted-foreground/40 focus:border-foreground/30"
-              />
+              <Label htmlFor="instanceName" className="text-[11px] text-muted-foreground">Instance Name</Label>
+              <Input id="instanceName" value={instanceName} onChange={(e) => setInstanceName(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs placeholder:text-muted-foreground/40 focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="retention" className="text-[11px] text-muted-foreground">
-                Log Retention (days)
-              </Label>
-              <Input
-                id="retention"
-                type="number"
-                value={retentionDays}
-                onChange={(e) => setRetentionDays(e.target.value)}
-                className="bg-background/60 border-border/50 h-8 text-xs placeholder:text-muted-foreground/40 focus:border-foreground/30"
-              />
+              <Label htmlFor="retention" className="text-[11px] text-muted-foreground">Log Retention (days)</Label>
+              <Input id="retention" type="number" value={retentionDays} onChange={(e) => setRetentionDays(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs placeholder:text-muted-foreground/40 focus:border-foreground/30" />
             </div>
           </div>
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
-              onClick={() => handleSave("General")}
-            >
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Save
-            </Button>
+            <SaveButton section="General" onClick={() => handleSave("general", { instanceName, retentionDays: parseInt(retentionDays) || 90 })} />
           </div>
         </SectionCard>
       </TabsContent>
 
       {/* Ingestion */}
       <TabsContent value="ingestion" className="mt-4 flex flex-col gap-5">
-        {/* Syslog Input */}
-        <SectionCard
-          title="Syslog Receiver"
-          description="Configure syslog ingestion endpoint for receiving logs from network devices"
-          icon={Server}
-        >
+        <SectionCard title="Syslog Receiver" description="Configure syslog ingestion endpoint for receiving logs from network devices" icon={Server}>
           <div className="flex items-center justify-between">
             <div>
               <span className="text-xs text-foreground">Enable Syslog Receiver</span>
@@ -300,26 +318,13 @@ export function SettingsView() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[11px] text-muted-foreground">Port</Label>
-                  <Input
-                    value={syslogPort}
-                    onChange={(e) => setSyslogPort(e.target.value)}
-                    className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-                  />
+                  <Input value={syslogPort} onChange={(e) => setSyslogPort(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[11px] text-muted-foreground">Protocol</Label>
                   <div className="flex items-center gap-1 h-8">
                     {(["udp", "tcp", "both"] as const).map((p) => (
-                      <button
-                        key={p}
-                        onClick={() => setSyslogProtocol(p)}
-                        className={cn(
-                          "flex-1 h-full rounded text-[11px] uppercase font-mono transition-colors border",
-                          syslogProtocol === p
-                            ? "bg-foreground/10 border-foreground/30 text-foreground"
-                            : "border-border/50 text-muted-foreground hover:text-foreground"
-                        )}
-                      >
+                      <button key={p} onClick={() => setSyslogProtocol(p)} className={cn("flex-1 h-full rounded text-[11px] uppercase font-mono transition-colors border", syslogProtocol === p ? "bg-foreground/10 border-foreground/30 text-foreground" : "border-border/50 text-muted-foreground hover:text-foreground")}>
                         {p}
                       </button>
                     ))}
@@ -329,40 +334,23 @@ export function SettingsView() {
                   <Label className="text-[11px] text-muted-foreground">TLS Encryption</Label>
                   <div className="flex items-center gap-2 h-8">
                     <Switch checked={syslogTls} onCheckedChange={setSyslogTls} />
-                    <span className="text-[11px] text-muted-foreground">
-                      {syslogTls ? "Enabled" : "Disabled"}
-                    </span>
+                    <span className="text-[11px] text-muted-foreground">{syslogTls ? "Enabled" : "Disabled"}</span>
                   </div>
                 </div>
               </div>
               <div className="bg-background/40 rounded-md p-3 border border-border/20">
                 <p className="text-[11px] text-muted-foreground font-mono">
-                  {"Listening on "}
-                  {syslogProtocol === "both" ? "UDP+TCP" : syslogProtocol.toUpperCase()}
-                  {" "}:{syslogPort}
-                  {syslogTls ? " (TLS)" : ""}
+                  {"Listening on "}{syslogProtocol === "both" ? "UDP+TCP" : syslogProtocol.toUpperCase()}{" "}:{syslogPort}{syslogTls ? " (TLS)" : ""}
                 </p>
               </div>
             </>
           )}
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
-              onClick={() => handleSave("Syslog Receiver")}
-            >
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Save
-            </Button>
+            <SaveButton section="Syslog" onClick={() => handleSave("syslog", { enabled: syslogEnabled, port: parseInt(syslogPort) || 1514, protocol: syslogProtocol, tls: syslogTls })} />
           </div>
         </SectionCard>
 
-        {/* API Ingestion */}
-        <SectionCard
-          title="API Ingestion"
-          description="REST API endpoint for programmatic log submission"
-          icon={Key}
-        >
+        <SectionCard title="API Ingestion" description="REST API endpoint for programmatic log submission" icon={Key}>
           <div className="flex items-center justify-between">
             <div>
               <span className="text-xs text-foreground">Enable API Endpoint</span>
@@ -375,30 +363,14 @@ export function SettingsView() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[11px] text-muted-foreground">API Port</Label>
-                  <Input
-                    value={apiPort}
-                    onChange={(e) => setApiPort(e.target.value)}
-                    className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-                  />
+                  <Input value={apiPort} onChange={(e) => setApiPort(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[11px] text-muted-foreground">API Key</Label>
                   <div className="flex items-center gap-2">
-                    <PasswordInput
-                      id="apiKey"
-                      value={apiKey}
-                      onChange={setApiKey}
-                      placeholder="sk-beacon-..."
-                    />
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 px-2 text-muted-foreground hover:text-foreground shrink-0"
-                      onClick={() => {
-                        setApiKey(`sk-beacon-${Math.random().toString(36).substring(2, 18)}`)
-                        toast.success("API key regenerated")
-                      }}
-                    >
+                    <PasswordInput id="apiKey" value={apiKey} onChange={setApiKey} placeholder="sk-beacon-..." />
+                    <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground hover:text-foreground shrink-0"
+                      onClick={() => { const newKey = `sk-beacon-${Math.random().toString(36).substring(2, 18)}`; setApiKey(newKey); toast.success("API key regenerated") }}>
                       <RotateCcw className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -406,284 +378,198 @@ export function SettingsView() {
               </div>
               <div className="bg-background/40 rounded-md p-3 border border-border/20">
                 <p className="text-[11px] text-muted-foreground mb-1">Endpoint:</p>
-                <code className="text-[11px] font-mono text-foreground/70">
-                  {"POST https://your-server:"}
-                  {apiPort}/api/v1/logs
-                </code>
+                <code className="text-[11px] font-mono text-foreground/70">POST https://your-server:{apiPort}/api/v1/logs</code>
               </div>
             </>
           )}
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
-              onClick={() => handleSave("API Ingestion")}
-            >
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Save
-            </Button>
+            <SaveButton section="API" onClick={() => handleSave("api", { enabled: apiEnabled, port: parseInt(apiPort) || 8443, apiKey })} />
           </div>
         </SectionCard>
       </TabsContent>
 
       {/* AI / LLM */}
       <TabsContent value="ai" className="mt-4 flex flex-col gap-5">
-        <SectionCard
-          title="LLM Provider Configuration"
-          description="Configure the AI model used for log analysis and enrichment"
-          icon={Key}
-        >
+        <SectionCard title="LLM Provider Configuration" description="Configure the AI model used for log analysis and enrichment" icon={Key}>
           <div className="flex flex-col gap-1.5">
             <Label className="text-[11px] text-muted-foreground">Provider</Label>
-            <div className="flex items-center gap-1 flex-wrap">
-              {(
-                [
-                  { key: "openai", label: "OpenAI" },
-                  { key: "anthropic", label: "Anthropic" },
-                  { key: "local", label: "Local (Ollama)" },
-                  { key: "custom", label: "Custom Endpoint" },
-                ] as const
-              ).map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => setLlmProvider(p.key)}
-                  className={cn(
-                    "px-3 py-1.5 rounded text-xs transition-colors border",
-                    llmProvider === p.key
-                      ? "bg-foreground/10 border-foreground/30 text-foreground"
-                      : "border-border/50 text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {p.label}
-                </button>
-              ))}
+            <div className="h-8 rounded-md border border-border/50 bg-background/60 px-2.5 flex items-center">
+              <span className="text-xs font-mono text-foreground">OpenAI (locked)</span>
             </div>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">API Key</Label>
-              <PasswordInput
-                id="llmApiKey"
-                value={llmApiKey}
-                onChange={setLlmApiKey}
-                placeholder={
-                  llmProvider === "openai"
-                    ? "sk-..."
-                    : llmProvider === "anthropic"
-                      ? "sk-ant-..."
-                      : "Not required for local"
-                }
-              />
+              <PasswordInput id="llmApiKey" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">Model</Label>
-              <Input
-                value={llmModel}
-                onChange={(e) => setLlmModel(e.target.value)}
-                placeholder="gpt-4o"
-                className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-              />
+              <Input value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="gpt-4.1-nano" className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">API Endpoint</Label>
-              <Input
-                value={llmEndpoint}
-                onChange={(e) => setLlmEndpoint(e.target.value)}
-                className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-              />
+              <Input value={llmEndpoint} onChange={(e) => setLlmEndpoint(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">Max Tokens</Label>
-              <Input
-                type="number"
-                value={llmMaxTokens}
-                onChange={(e) => setLlmMaxTokens(e.target.value)}
-                className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-              />
+              <Input type="number" value={llmMaxTokens} onChange={(e) => setLlmMaxTokens(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">Temperature</Label>
-              <Input
-                type="number"
-                step="0.1"
-                min="0"
-                max="2"
-                value={llmTemperature}
-                onChange={(e) => setLlmTemperature(e.target.value)}
-                className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-              />
+              <Input type="number" step="0.1" min="0" max="2" value={llmTemperature} onChange={(e) => setLlmTemperature(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-[11px] text-muted-foreground">Agent Calls / Alert</Label>
+              <Input type="number" min="1" max="4" value={analysisAgents} onChange={(e) => setAnalysisAgents(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-[11px] text-muted-foreground">Auto Status Threshold (%)</Label>
+              <Input type="number" min="1" max="100" value={autoStatusThreshold} onChange={(e) => setAutoStatusThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
           </div>
-
           <div className="flex items-center justify-between py-1">
             <div>
               <span className="text-xs text-foreground">Auto-Enrich Alerts</span>
-              <p className="text-[11px] text-muted-foreground">
-                Automatically send new alerts to LLM for analysis
-              </p>
+              <p className="text-[11px] text-muted-foreground">Automatically send new alerts to LLM for analysis</p>
             </div>
             <Switch checked={autoEnrich} onCheckedChange={setAutoEnrich} />
           </div>
-
           <div className="bg-background/40 rounded-md p-3 border border-border/20">
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-muted-foreground">System Prompt Preview</span>
             </div>
             <pre className="mt-2 text-[11px] font-mono text-foreground/50 leading-relaxed whitespace-pre-wrap">
-{`You are a SOC analyst AI assistant. Analyze the following security log/alert and provide:
-1. Detailed analysis of what occurred
-2. Threat assessment and confidence level
-3. IOC classification and MITRE ATT&CK mapping
-4. Actionable recommendations for the SOC team
-5. Related threat intelligence context
+{`Multi-agent enrichment (up to 4 low-cost calls):
+1) Incident triage + confidence scoring
+2) IOC/detection quality review
+3) Threat-intel correlation (IP/URL/domain/hash)
+4) SOC response plan
 
-Be precise, technical, and actionable.`}
+Model default: gpt-4.1-nano`}
             </pre>
           </div>
-
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
-              onClick={() => handleSave("LLM Configuration")}
-            >
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Save
-            </Button>
+            <SaveButton section="LLM" onClick={() => handleSave("llm", { provider: llmProvider, apiKey: llmApiKey, model: llmModel, endpoint: llmEndpoint, maxTokens: parseInt(llmMaxTokens) || 700, temperature: parseFloat(llmTemperature) || 0.1, autoEnrich, analysisAgents: Math.max(1, Math.min(4, parseInt(analysisAgents) || 3)), autoStatusConfidenceThreshold: Math.max(1, Math.min(100, parseInt(autoStatusThreshold) || 90)) })} />
           </div>
         </SectionCard>
       </TabsContent>
 
       {/* YARA Rules */}
       <TabsContent value="yara" className="mt-4 flex flex-col gap-5">
-        <SectionCard
-          title="YARA Rule Engine"
-          description="Configure YARA rule scanning for incoming logs and payloads"
-          icon={FileCode}
-        >
+        <SectionCard title="YARA Rule Engine" description="Configure YARA rule scanning for incoming logs and payloads" icon={FileCode}>
           <div className="flex items-center justify-between">
             <div>
               <span className="text-xs text-foreground">Enable YARA Scanning</span>
-              <p className="text-[11px] text-muted-foreground">
-                Scan ingested logs against YARA rule sets
-              </p>
+              <p className="text-[11px] text-muted-foreground">Scan ingested logs against YARA rule sets</p>
             </div>
             <Switch checked={yaraEnabled} onCheckedChange={setYaraEnabled} />
           </div>
-
           {yaraEnabled && (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[11px] text-muted-foreground">Rules Directory</Label>
-                  <Input
-                    value={yaraRulesPath}
-                    onChange={(e) => setYaraRulesPath(e.target.value)}
-                    className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[11px] text-muted-foreground">Auto-Update Rules</Label>
-                  <div className="flex items-center gap-2 h-8">
-                    <Switch checked={yaraAutoUpdate} onCheckedChange={setYaraAutoUpdate} />
-                    <span className="text-[11px] text-muted-foreground">
-                      {yaraAutoUpdate ? "Enabled (daily)" : "Disabled"}
-                    </span>
-                  </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-[11px] text-muted-foreground">Auto-Update Rules</Label>
+                <div className="flex items-center gap-2 h-8">
+                  <Switch checked={yaraAutoUpdate} onCheckedChange={setYaraAutoUpdate} />
+                  <span className="text-[11px] text-muted-foreground">{yaraAutoUpdate ? "Enabled (daily)" : "Disabled"}</span>
                 </div>
               </div>
-
               <div className="flex flex-col gap-2">
                 <span className="text-[11px] text-muted-foreground font-medium">Active Rules</span>
                 <div className="bg-background/40 rounded-md border border-border/20 divide-y divide-border/20">
                   {customYaraRules.map((rule, i) => (
-                    <div key={rule.name} className="flex items-center justify-between px-3 py-2">
+                    <div key={rule.id} className="flex items-center justify-between px-3 py-2">
                       <div className="flex items-center gap-2">
                         <FileCode className="w-3 h-3 text-muted-foreground/60" />
                         <code className="text-[11px] font-mono text-foreground/70">{rule.name}</code>
                       </div>
-                      <Switch
-                        checked={rule.enabled}
-                        onCheckedChange={(checked) => {
-                          const updated = [...customYaraRules]
-                          updated[i] = { ...updated[i], enabled: checked }
-                          setCustomYaraRules(updated)
-                        }}
-                      />
+                      <Switch checked={rule.enabled} onCheckedChange={(checked) => handleToggleYaraRule(rule.id, i, checked)} />
                     </div>
                   ))}
                 </div>
               </div>
             </>
           )}
-
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
-              onClick={() => handleSave("YARA Rules")}
-            >
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Save
-            </Button>
+            <SaveButton section="YARA" onClick={() => handleSave("yara", { enabled: yaraEnabled, autoUpdate: yaraAutoUpdate })} />
+          </div>
+        </SectionCard>
+      </TabsContent>
+
+      {/* Sigma Rules */}
+      <TabsContent value="sigma" className="mt-4 flex flex-col gap-5">
+        <SectionCard title="Sigma Rule Engine" description="Use SigmaHQ YAML detection rules for log correlation" icon={Shield}>
+          <div className="flex items-center justify-between">
+            <div>
+              <span className="text-xs text-foreground">Enable Sigma Matching</span>
+              <p className="text-[11px] text-muted-foreground">Apply Sigma rules during log ingestion</p>
+            </div>
+            <Switch checked={sigmaEnabled} onCheckedChange={setSigmaEnabled} />
+          </div>
+          {sigmaEnabled && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-[11px] text-muted-foreground">Sigma Rules Path (local clone)</Label>
+                  <Input
+                    value={sigmaRulesPath}
+                    onChange={(e) => setSigmaRulesPath(e.target.value)}
+                    placeholder="C:\\rules\\sigma\\rules"
+                    className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-[11px] text-muted-foreground">Max Rules To Load</Label>
+                  <Input
+                    type="number"
+                    min="10"
+                    max="5000"
+                    value={sigmaMaxRules}
+                    onChange={(e) => setSigmaMaxRules(e.target.value)}
+                    className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
+                  />
+                </div>
+              </div>
+              <div className="bg-background/40 rounded-md p-3 border border-border/20">
+                <p className="text-[11px] text-muted-foreground">
+                  Clone SigmaHQ locally and point to its <code className="font-mono">rules</code> folder.
+                </p>
+              </div>
+            </>
+          )}
+          <div className="flex justify-end">
+            <SaveButton section="Sigma" onClick={() => handleSave("sigma", { enabled: sigmaEnabled, rulesPath: sigmaRulesPath, maxRules: Math.max(10, Math.min(5000, parseInt(sigmaMaxRules) || 500)) })} />
           </div>
         </SectionCard>
       </TabsContent>
 
       {/* Output */}
       <TabsContent value="output" className="mt-4 flex flex-col gap-5">
-        <SectionCard
-          title="Syslog Output"
-          description="Forward enriched alerts to external SIEMs via syslog"
-          icon={Send}
-        >
+        <SectionCard title="Syslog Output" description="Forward enriched alerts to external SIEMs via syslog" icon={Send}>
           <div className="flex items-center justify-between">
             <div>
               <span className="text-xs text-foreground">Enable Syslog Output</span>
-              <p className="text-[11px] text-muted-foreground">
-                Forward enriched alert data to your SIEM
-              </p>
+              <p className="text-[11px] text-muted-foreground">Forward enriched alert data to your SIEM</p>
             </div>
             <Switch checked={syslogOutputEnabled} onCheckedChange={setSyslogOutputEnabled} />
           </div>
-
           {syslogOutputEnabled && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[11px] text-muted-foreground">Destination Host</Label>
-                  <Input
-                    value={syslogOutputHost}
-                    onChange={(e) => setSyslogOutputHost(e.target.value)}
-                    className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-                  />
+                  <Input value={syslogOutputHost} onChange={(e) => setSyslogOutputHost(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[11px] text-muted-foreground">Port</Label>
-                  <Input
-                    value={syslogOutputPort}
-                    onChange={(e) => setSyslogOutputPort(e.target.value)}
-                    className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
-                  />
+                  <Input value={syslogOutputPort} onChange={(e) => setSyslogOutputPort(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[11px] text-muted-foreground">Output Format</Label>
                   <div className="flex items-center gap-1 h-8">
                     {(["cef", "leef", "json"] as const).map((f) => (
-                      <button
-                        key={f}
-                        onClick={() => setSyslogOutputFormat(f)}
-                        className={cn(
-                          "flex-1 h-full rounded text-[11px] uppercase font-mono transition-colors border",
-                          syslogOutputFormat === f
-                            ? "bg-foreground/10 border-foreground/30 text-foreground"
-                            : "border-border/50 text-muted-foreground hover:text-foreground"
-                        )}
-                      >
+                      <button key={f} onClick={() => setSyslogOutputFormat(f)} className={cn("flex-1 h-full rounded text-[11px] uppercase font-mono transition-colors border", syslogOutputFormat === f ? "bg-foreground/10 border-foreground/30 text-foreground" : "border-border/50 text-muted-foreground hover:text-foreground")}>
                         {f}
                       </button>
                     ))}
@@ -692,56 +578,33 @@ Be precise, technical, and actionable.`}
               </div>
               <div className="bg-background/40 rounded-md p-3 border border-border/20">
                 <p className="text-[11px] text-muted-foreground mb-1">Output destination:</p>
-                <code className="text-[11px] font-mono text-foreground/70">
-                  {syslogOutputFormat.toUpperCase()} {"->"} {syslogOutputHost}:{syslogOutputPort}
-                </code>
+                <code className="text-[11px] font-mono text-foreground/70">{syslogOutputFormat.toUpperCase()} {"->"} {syslogOutputHost}:{syslogOutputPort}</code>
               </div>
             </>
           )}
-
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
-              onClick={() => handleSave("Syslog Output")}
-            >
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Save
-            </Button>
+            <SaveButton section="Output" onClick={() => handleSave("syslogOutput", { enabled: syslogOutputEnabled, host: syslogOutputHost, port: parseInt(syslogOutputPort) || 5514, format: syslogOutputFormat })} />
           </div>
         </SectionCard>
       </TabsContent>
 
       {/* Threat Intel */}
       <TabsContent value="threatintel" className="mt-4 flex flex-col gap-5">
-        <SectionCard
-          title="Threat Intelligence Feeds"
-          description="Configure external threat intelligence sources for alert enrichment"
-          icon={Shield}
-        >
+        <SectionCard title="Threat Intelligence Feeds" description="Configure external threat intelligence sources for alert enrichment" icon={Shield}>
           <div className="flex flex-col gap-2">
             <div className="bg-background/40 rounded-md border border-border/20 divide-y divide-border/20">
               {threatFeeds.map((feed, i) => (
-                <div key={feed.name} className="flex items-center justify-between px-3 py-2.5">
+                <div key={feed.id} className="flex items-center justify-between px-3 py-2.5">
                   <div className="flex flex-col gap-0.5 flex-1 min-w-0">
                     <span className="text-xs text-foreground/80">{feed.name}</span>
-                    <code className="text-[10px] font-mono text-muted-foreground/60 truncate">
-                      {feed.url}
-                    </code>
+                    <code className="text-[10px] font-mono text-muted-foreground/60 truncate">{feed.url}</code>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Switch
-                      checked={feed.enabled}
-                      onCheckedChange={(checked) => {
-                        const updated = [...threatFeeds]
-                        updated[i] = { ...updated[i], enabled: checked }
-                        setThreatFeeds(updated)
-                      }}
-                    />
-                    <button
-                      onClick={() => handleRemoveFeed(i)}
-                      className="p-1 rounded hover:bg-foreground/10 transition-colors text-muted-foreground/40 hover:text-foreground/60"
-                    >
+                  <div className="flex items-center gap-2 shrink-0 ml-2">
+                    <div className="w-32">
+                      <PasswordInput id={`feed-key-${feed.id}`} value={feed.apiKey} onChange={(v) => { const updated = [...threatFeeds]; updated[i] = { ...updated[i], apiKey: v }; setThreatFeeds(updated); updateThreatFeedApiKeyAction(feed.id, v) }} placeholder="API Key" />
+                    </div>
+                    <Switch checked={feed.enabled} onCheckedChange={(checked) => handleToggleFeed(feed.id, i, checked)} />
+                    <button onClick={() => handleRemoveFeed(feed.id, i)} className="p-1 rounded hover:bg-foreground/10 transition-colors text-muted-foreground/40 hover:text-foreground/60">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -749,104 +612,49 @@ Be precise, technical, and actionable.`}
               ))}
             </div>
           </div>
-
           <div className="flex flex-col gap-2">
             <span className="text-[11px] text-muted-foreground font-medium">Add Feed</span>
             <div className="flex items-end gap-2">
               <div className="flex flex-col gap-1 flex-1">
-                <Input
-                  value={newFeedName}
-                  onChange={(e) => setNewFeedName(e.target.value)}
-                  placeholder="Feed name"
-                  className="bg-background/60 border-border/50 h-8 text-xs focus:border-foreground/30 placeholder:text-muted-foreground/40"
-                />
+                <Input value={newFeedName} onChange={(e) => setNewFeedName(e.target.value)} placeholder="Feed name" className="bg-background/60 border-border/50 h-8 text-xs focus:border-foreground/30 placeholder:text-muted-foreground/40" />
               </div>
               <div className="flex flex-col gap-1 flex-[2]">
-                <Input
-                  value={newFeedUrl}
-                  onChange={(e) => setNewFeedUrl(e.target.value)}
-                  placeholder="https://api.example.com/v1/"
-                  className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30 placeholder:text-muted-foreground/40"
-                />
+                <Input value={newFeedUrl} onChange={(e) => setNewFeedUrl(e.target.value)} placeholder="https://api.example.com/v1/" className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30 placeholder:text-muted-foreground/40" />
               </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-8 px-3 text-xs text-muted-foreground hover:text-foreground shrink-0"
-                onClick={handleAddFeed}
-              >
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                Add
+              <Button size="sm" variant="ghost" className="h-8 px-3 text-xs text-muted-foreground hover:text-foreground shrink-0" onClick={handleAddFeed}>
+                <Plus className="w-3.5 h-3.5 mr-1" />Add
               </Button>
             </div>
-          </div>
-
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
-              onClick={() => handleSave("Threat Intel")}
-            >
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Save
-            </Button>
           </div>
         </SectionCard>
       </TabsContent>
 
       {/* Authentication */}
       <TabsContent value="auth" className="mt-4 flex flex-col gap-5">
-        <SectionCard
-          title="Change Password"
-          description="Update the admin account password"
-          icon={User}
-        >
+        <SectionCard title="Change Password" description="Update the admin account password" icon={User}>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">Current Password</Label>
-              <PasswordInput
-                id="currentPassword"
-                value={currentPassword}
-                onChange={setCurrentPassword}
-                placeholder="Enter current password"
-              />
+              <PasswordInput id="currentPassword" value={currentPassword} onChange={setCurrentPassword} placeholder="Enter current password" />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">New Password</Label>
-              <PasswordInput
-                id="newPassword"
-                value={newPassword}
-                onChange={setNewPassword}
-                placeholder="Enter new password"
-              />
+              <PasswordInput id="newPassword" value={newPassword} onChange={setNewPassword} placeholder="Enter new password" />
             </div>
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">Confirm Password</Label>
-              <PasswordInput
-                id="confirmPassword"
-                value={confirmPassword}
-                onChange={setConfirmPassword}
-                placeholder="Confirm new password"
-              />
+              <PasswordInput id="confirmPassword" value={confirmPassword} onChange={setConfirmPassword} placeholder="Confirm new password" />
             </div>
           </div>
           <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
-              onClick={handlePasswordChange}
-            >
-              <Lock className="w-3.5 h-3.5 mr-1.5" />
+            <Button size="sm" className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90" onClick={handlePasswordChange} disabled={saving === "password"}>
+              {saving === "password" ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Lock className="w-3.5 h-3.5 mr-1.5" />}
               Update Password
             </Button>
           </div>
         </SectionCard>
 
-        <SectionCard
-          title="Session Management"
-          description="View and manage active sessions"
-          icon={Shield}
-        >
+        <SectionCard title="Session Management" description="View and manage active sessions" icon={Shield}>
           <div className="bg-background/40 rounded-md border border-border/20 divide-y divide-border/20">
             <div className="flex items-center justify-between px-3 py-2.5">
               <div className="flex items-center gap-3">
@@ -867,6 +675,63 @@ Be precise, technical, and actionable.`}
           <p className="text-[11px] text-muted-foreground/60">
             Sessions expire after 7 days of inactivity. Changing your password will invalidate all other sessions.
           </p>
+        </SectionCard>
+      </TabsContent>
+
+      {/* Help */}
+      <TabsContent value="help" className="mt-4 flex flex-col gap-5">
+        <SectionCard title="API Ingestion Examples" description="How to send logs to the REST API using curl or Postman" icon={HelpCircle}>
+          <div className="flex flex-col gap-3">
+            <div className="bg-background/40 rounded-md p-3 border border-border/20">
+              <p className="text-[11px] text-muted-foreground mb-1">Endpoint:</p>
+              <code className="text-[11px] font-mono text-foreground/70">POST https://your-server:{apiPort}/api/v1/logs</code>
+            </div>
+
+            <div className="bg-background/40 rounded-md p-3 border border-border/20">
+              <p className="text-[11px] text-muted-foreground mb-2">Single log (curl):</p>
+              <pre className="text-[11px] font-mono text-foreground/70 whitespace-pre-wrap">{`curl -X POST "https://your-server:${apiPort}/api/v1/logs" \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: ${apiKey || "sk-beacon-..."}" \\
+  -d '{
+    "timestamp": "2026-02-21T16:32:00.000Z",
+    "source": "Firewall-01",
+    "message": "DROP: SRC=198.51.100.44 DST=10.0.1.15 PROTO=TCP SPT=443 DPT=49832",
+    "severity": "high"
+  }'`}</pre>
+            </div>
+
+            <div className="bg-background/40 rounded-md p-3 border border-border/20">
+              <p className="text-[11px] text-muted-foreground mb-2">Batch logs (curl):</p>
+              <pre className="text-[11px] font-mono text-foreground/70 whitespace-pre-wrap">{`curl -X POST "https://your-server:${apiPort}/api/v1/logs" \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${apiKey || "sk-beacon-..."}" \\
+  -d '[
+    { "timestamp": "2026-02-21T16:32:00.000Z", "source": "EDR-Agent-07", "message": "ALERT: Process injection detected", "severity": "critical" },
+    { "timestamp": "2026-02-21T16:33:15.000Z", "source": "DNS-Monitor", "message": "Query: suspicious-c2-domain.top IN TXT", "severity": "medium" }
+  ]'`}</pre>
+            </div>
+
+            <div className="bg-background/40 rounded-md p-3 border border-border/20">
+              <p className="text-[11px] text-muted-foreground mb-2">Postman:</p>
+              <ul className="text-[11px] text-muted-foreground list-disc pl-4 space-y-1">
+                <li>Method: POST</li>
+                <li>URL: https://your-server:{apiPort}/api/v1/logs</li>
+                <li>Headers: Content-Type = application/json</li>
+                <li>Headers: x-api-key = {apiKey || "sk-beacon-..."}</li>
+                <li>Body: raw JSON (same as the curl examples)</li>
+              </ul>
+            </div>
+
+            <div className="bg-background/40 rounded-md p-3 border border-border/20">
+              <p className="text-[11px] text-muted-foreground mb-2">Accepted fields:</p>
+              <ul className="text-[11px] text-muted-foreground list-disc pl-4 space-y-1">
+                <li>message (or msg or log) is required</li>
+                <li>timestamp (or time) is optional</li>
+                <li>source (or host) defaults to API</li>
+                <li>severity (or level) supports: critical, high, medium, low, info</li>
+              </ul>
+            </div>
+          </div>
         </SectionCard>
       </TabsContent>
     </Tabs>

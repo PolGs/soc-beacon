@@ -1,14 +1,14 @@
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
+import { authenticateUser } from "@/lib/db/users"
 
 const SESSION_COOKIE = "soc-beacon-session"
-const DEFAULT_USERNAME = "admin"
-const DEFAULT_PASSWORD = "admin"
 
 export async function login(username: string, password: string): Promise<boolean> {
-  if (username === DEFAULT_USERNAME && password === DEFAULT_PASSWORD) {
+  const user = await authenticateUser(username, password)
+  if (user) {
     const cookieStore = await cookies()
-    cookieStore.set(SESSION_COOKIE, btoa(JSON.stringify({ user: username, ts: Date.now() })), {
+    cookieStore.set(SESSION_COOKIE, btoa(JSON.stringify({ user: user.username, ts: Date.now() })), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
