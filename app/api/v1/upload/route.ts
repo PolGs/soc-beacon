@@ -1,8 +1,39 @@
 import { NextRequest, NextResponse } from "next/server"
 import { parseLogFile } from "@/lib/ingestion/parser"
 import { ingestLogsBatch } from "@/lib/pipeline"
+import { getSetting } from "@/lib/db/settings"
+import { getSession } from "@/lib/auth"
+
+async function validateApiKey(request: NextRequest): Promise<{ ok: boolean; status: number; error: string }> {
+  const session = await getSession()
+  if (session) {
+    return { ok: true, status: 200, error: "" }
+  }
+
+  const apiSettings = await getSetting<{ enabled: boolean; apiKey: string }>("api", {
+    enabled: true,
+    apiKey: "",
+  })
+  if (!apiSettings.enabled) {
+    return { ok: false, status: 403, error: "API is disabled" }
+  }
+  if (!apiSettings.apiKey) {
+    return { ok: false, status: 401, error: "API key is not configured" }
+  }
+  const authHeader = request.headers.get("authorization")
+  const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || request.headers.get("x-api-key")
+  if (!apiKey || apiKey !== apiSettings.apiKey) {
+    return { ok: false, status: 401, error: "Unauthorized" }
+  }
+  return { ok: true, status: 200, error: "" }
+}
 
 export async function POST(request: NextRequest) {
+  const auth = await validateApiKey(request)
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status })
+  }
+
   try {
     const formData = await request.formData()
     const file = formData.get("file") as File | null

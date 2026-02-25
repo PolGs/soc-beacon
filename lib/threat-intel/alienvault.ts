@@ -1,3 +1,5 @@
+import { systemLog } from "@/lib/system-log"
+
 interface OTXResult {
   pulseCount: number
   reputation: number
@@ -14,7 +16,10 @@ export async function lookupIP(ip: string, apiKey: string): Promise<OTXResult | 
         },
       }
     )
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "AlienVault OTX IP lookup failed", { ip, status: res.status })
+      return null
+    }
     const data = await res.json()
 
     return {
@@ -22,7 +27,8 @@ export async function lookupIP(ip: string, apiKey: string): Promise<OTXResult | 
       reputation: data.reputation || 0,
       summary: `OTX: ${data.pulse_info?.count || 0} threat pulses, reputation score: ${data.reputation || 0}`,
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "AlienVault OTX IP lookup error", { ip, error: String(err) })
     return null
   }
 }
@@ -37,7 +43,10 @@ export async function lookupDomain(domain: string, apiKey: string): Promise<OTXR
         },
       }
     )
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "AlienVault OTX domain lookup failed", { domain, status: res.status })
+      return null
+    }
     const data = await res.json()
 
     return {
@@ -45,7 +54,8 @@ export async function lookupDomain(domain: string, apiKey: string): Promise<OTXR
       reputation: data.reputation || 0,
       summary: `OTX: ${data.pulse_info?.count || 0} threat pulses`,
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "AlienVault OTX domain lookup error", { domain, error: String(err) })
     return null
   }
 }

@@ -3,41 +3,114 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { logoutAction } from "@/app/actions"
+import { forceChangeDefaultPasswordAction, logoutAction } from "@/app/actions"
 import {
   LayoutDashboard,
   ShieldAlert,
   ScrollText,
   Settings,
+  FileText,
   LogOut,
   Radio,
   ChevronLeft,
   ChevronRight,
+  Lock,
 } from "lucide-react"
-import { useState } from "react"
+import { useState, useTransition } from "react"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { toast } from "sonner"
 
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/alerts", label: "Alerts", icon: ShieldAlert },
   { href: "/dashboard/logs", label: "Log Explorer", icon: ScrollText },
+  { href: "/dashboard/system-logs", label: "System Logs", icon: FileText },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ]
 
 export function DashboardShell({
   children,
   user,
+  requirePasswordReset,
 }: {
   children: React.ReactNode
   user: string
+  requirePasswordReset: boolean
 }) {
   const pathname = usePathname()
   const [collapsed, setCollapsed] = useState(false)
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [isPending, startTransition] = useTransition()
+
+  const handleForcePasswordChange = () => {
+    if (newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters")
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("Passwords do not match")
+      return
+    }
+    startTransition(async () => {
+      const result = await forceChangeDefaultPasswordAction(newPassword)
+      if (result.success) {
+        toast.success("Password updated. Please keep it secure.")
+        setNewPassword("")
+        setConfirmPassword("")
+      } else {
+        toast.error(result.error || "Failed to update password")
+      }
+    })
+  }
 
   return (
     <TooltipProvider delayDuration={0}>
       <div className="flex h-screen overflow-hidden">
+        <Dialog open={requirePasswordReset} onOpenChange={() => {}}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Lock className="w-4 h-4" />
+                Set a new admin password
+              </DialogTitle>
+              <DialogDescription>
+                The default admin password is still active. Please set a new password before continuing.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground">New Password</span>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Minimum 8 characters"
+                  className="bg-background/60 border-border/50 h-9 text-xs font-mono focus:border-foreground/30"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[11px] text-muted-foreground">Confirm Password</span>
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Repeat new password"
+                  className="bg-background/60 border-border/50 h-9 text-xs font-mono focus:border-foreground/30"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button className="h-9 text-xs" onClick={handleForcePasswordChange} disabled={isPending}>
+                {isPending ? "Updating..." : "Update Password"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Sidebar */}
         <aside
           className={cn(

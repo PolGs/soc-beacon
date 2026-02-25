@@ -1,3 +1,5 @@
+import { systemLog } from "@/lib/system-log"
+
 interface UrlhausResult {
   summary: string
 }
@@ -15,9 +17,13 @@ async function postForm(
       },
       body,
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "URLhaus request failed", { endpoint, status: res.status })
+      return null
+    }
     return (await res.json()) as Record<string, unknown>
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "URLhaus request error", { endpoint, error: String(err) })
     return null
   }
 }

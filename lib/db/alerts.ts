@@ -42,6 +42,8 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
             ? { country: enrichRow.geo_country as string, city: (enrichRow.geo_city as string) || "" }
             : null,
         asnInfo: (enrichRow.asn_info as string) || null,
+        parseConfidence: typeof enrichRow.parse_confidence === "number" ? (enrichRow.parse_confidence as number) : undefined,
+        sigma: enrichRow.sigma_match ? JSON.parse(enrichRow.sigma_match as string) : null,
       }
     : {
         aiAnalysis: "",
@@ -54,6 +56,8 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
         relatedCves: [],
         geoLocation: null,
         asnInfo: null,
+        parseConfidence: undefined,
+        sigma: null,
       }
 
   return {
@@ -96,7 +100,7 @@ export async function getAlerts(filters?: {
   offset?: number
 }): Promise<Alert[]> {
   const db = await getDb()
-  let sql = `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info
+  let sql = `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence
     FROM alerts a LEFT JOIN alert_enrichments e ON a.id = e.alert_id WHERE 1=1`
   const params: unknown[] = []
 
@@ -135,7 +139,7 @@ export async function getAlertById(id: string): Promise<Alert | null> {
   const db = await getDb()
   const rows = stmtToObjects(
     db,
-    `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info
+    `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence
      FROM alerts a LEFT JOIN alert_enrichments e ON a.id = e.alert_id WHERE a.id = ?`,
     [id]
   )

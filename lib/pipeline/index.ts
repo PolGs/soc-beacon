@@ -3,6 +3,9 @@ import { createAlert } from "@/lib/db/alerts"
 import { classifyLog } from "./classifier"
 import { scanLogMessage } from "@/lib/yara"
 import { classifyWithSigma } from "@/lib/sigma"
+import { upsertEnrichment } from "@/lib/db/enrichments"
+import { extractStructuredFields } from "@/lib/ingestion/structured-fields"
+import { systemLog } from "@/lib/system-log"
 import type { Severity } from "@/lib/types"
 
 interface IngestLogInput {
@@ -36,9 +39,12 @@ export async function ingestLog(input: IngestLogInput): Promise<{ logId: string;
   const timestamp = input.timestamp || new Date().toISOString()
 
   // Detect/classify first so missing severity can be upgraded from detection.
-  const sigmaClassification = await classifyWithSigma(input.message, input.source).catch(() => null)
+  const sigmaResult = await classifyWithSigma(input.message, input.source, input.parsed).catch((err) => {
+    systemLog("error", "sigma", "Sigma evaluation failed", { error: String(err) })
+    return null
+  })
   const builtinClassification = classifyLog(input.message, input.source)
-  const classification = sigmaClassification || builtinClassification
+  const classification = sigmaResult?.classification || builtinClassification
   const effectiveSeverity = classification?.severity || baseSeverity
 
   // Create log entry
@@ -79,6 +85,19 @@ export async function ingestLog(input: IngestLogInput): Promise<{ logId: string;
   }
 
   const alertId = await createAlert(alertData)
+  if (sigmaResult?.sigma) {
+    systemLog("info", "sigma", "Sigma rule matched", {
+      alertId,
+      title: sigmaResult.sigma.title,
+      ruleId: sigmaResult.sigma.ruleId,
+    })
+  }
+
+  const structured = extractStructuredFields(input.message, input.parsed)
+  await upsertEnrichment(alertId, {
+    parseConfidence: structured.confidence,
+    sigmaMatch: sigmaResult?.sigma,
+  })
 
   // Always run threat intel enrichment in background.
   try {
@@ -87,6 +106,7 @@ export async function ingestLog(input: IngestLogInput): Promise<{ logId: string;
       // Async enrichment, don't block ingestion
     })
   } catch {
+    systemLog("warn", "threat-intel", "Threat intel module unavailable", { alertId })
     // Threat intel module unavailable, skip
   }
 
@@ -97,6 +117,7 @@ export async function ingestLog(input: IngestLogInput): Promise<{ logId: string;
       // Async enrichment, don't block
     })
   } catch {
+    systemLog("warn", "llm", "LLM module unavailable", { alertId })
     // LLM module unavailable, skip
   }
 

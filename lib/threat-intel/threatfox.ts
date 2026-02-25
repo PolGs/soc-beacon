@@ -1,3 +1,5 @@
+import { systemLog } from "@/lib/system-log"
+
 interface ThreatFoxSummary {
   summary: string
 }
@@ -17,7 +19,10 @@ async function queryThreatFox(
         search_term: searchTerm,
       }),
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "ThreatFox request failed", { query, status: res.status })
+      return null
+    }
 
     const data = (await res.json()) as {
       query_status?: string
@@ -26,7 +31,8 @@ async function queryThreatFox(
 
     if (data.query_status !== "ok" || !Array.isArray(data.data)) return null
     return data.data
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "ThreatFox request error", { query, error: String(err) })
     return null
   }
 }

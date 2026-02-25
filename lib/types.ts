@@ -3,6 +3,30 @@ export type IncidentStatus = "unassigned" | "in_progress" | "resolved"
 export type AlertVerdict = "malicious" | "suspicious" | "false_positive"
 export type LLMProvider = "openai" | "anthropic" | "local" | "custom"
 
+export interface SigmaMatchDetail {
+  selection: string
+  field: string
+  operator: string
+  expected: string
+  actual: string
+}
+
+export interface SigmaMatch {
+  ruleId?: string
+  title?: string
+  level?: string
+  description?: string
+  author?: string
+  status?: string
+  references?: string[]
+  tags?: string[]
+  logsource?: Record<string, string>
+  condition?: string
+  selections?: string[]
+  matchDetails?: SigmaMatchDetail[]
+  source?: string
+}
+
 export interface AlertEnrichment {
   aiAnalysis: string
   iocType: string
@@ -14,6 +38,8 @@ export interface AlertEnrichment {
   relatedCves: string[]
   geoLocation: { country: string; city: string } | null
   asnInfo: string | null
+  parseConfidence?: number
+  sigma?: SigmaMatch | null
 }
 
 export interface Alert {
@@ -58,9 +84,18 @@ export interface Settings {
     autoEnrich: boolean
     analysisAgents?: number
     autoStatusConfidenceThreshold?: number
+    verdictMaliciousThreshold?: number
+    verdictSuspiciousThreshold?: number
   }
   yara: { enabled: boolean; autoUpdate: boolean }
-  sigma: { enabled: boolean; rulesPath: string; maxRules: number }
+  sigma: {
+    enabled: boolean
+    rulesPath: string
+    maxRules: number
+    lastSyncAt?: string
+    lastSyncStatus?: "success" | "error"
+    lastSyncError?: string
+  }
   syslogOutput: { enabled: boolean; host: string; port: number; format: "cef" | "leef" | "json" }
 }
 

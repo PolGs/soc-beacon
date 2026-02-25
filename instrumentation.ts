@@ -13,4 +13,22 @@ export async function register() {
   } catch (err) {
     console.error("[instrumentation] Failed to start syslog:", err)
   }
+
+  try {
+    const { getSetting } = await import("@/lib/db/settings")
+    const { runRetentionCleanup } = await import("@/lib/db/retention")
+    const runCleanup = async () => {
+      const general = await getSetting<{ retentionDays?: number }>("general", { retentionDays: 90 })
+      const retentionDays = typeof general.retentionDays === "number" ? general.retentionDays : 90
+      await runRetentionCleanup(retentionDays)
+    }
+    await runCleanup()
+    setInterval(() => {
+      runCleanup().catch((err) => {
+        console.error("[retention] Cleanup failed:", err)
+      })
+    }, 24 * 60 * 60 * 1000)
+  } catch (err) {
+    console.error("[retention] Failed to schedule cleanup:", err)
+  }
 }

@@ -1,4 +1,5 @@
 import { getSetting } from "@/lib/db/settings"
+import { systemLog } from "@/lib/system-log"
 import type { LLMProvider } from "@/lib/types"
 
 export interface LLMMessage {
@@ -37,6 +38,7 @@ export async function getLLMClient(): Promise<LLMClient> {
 
   const apiKey = (settings.apiKey || "").trim()
   if (!apiKey) {
+    systemLog("warn", "llm", "LLM API key not configured")
     throw new Error("LLM API key not configured")
   }
 

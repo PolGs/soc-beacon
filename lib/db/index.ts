@@ -155,6 +155,8 @@ CREATE TABLE IF NOT EXISTS alert_enrichments (
   geo_country TEXT,
   geo_city TEXT,
   asn_info TEXT,
+  sigma_match TEXT,
+  parse_confidence REAL,
   enriched_at TEXT DEFAULT (datetime('now')),
   llm_provider TEXT,
   llm_model TEXT
@@ -233,6 +235,14 @@ function migrateSchema(database: Database) {
     database.run("ALTER TABLE alert_enrichments ADD COLUMN heuristics_score REAL")
     database.run("UPDATE alert_enrichments SET heuristics_score = confidence WHERE heuristics_score IS NULL")
   }
+
+  if (!tableHasColumn(database, "alert_enrichments", "sigma_match")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN sigma_match TEXT")
+  }
+
+  if (!tableHasColumn(database, "alert_enrichments", "parse_confidence")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN parse_confidence REAL")
+  }
 }
 
 function seedDatabase(database: Database) {
@@ -248,7 +258,7 @@ function seedDatabase(database: Database) {
   const defaults: Record<string, unknown> = {
     general: { instanceName: "SOC Beacon - Production", retentionDays: 90 },
     syslog: { enabled: true, port: 1514, protocol: "both", tls: false },
-    api: { enabled: true, port: 8443, apiKey: `sk-beacon-${nanoid(16)}` },
+    api: { enabled: true, port: 8443, apiKey: `sk-beacon-${nanoid(32)}` },
     llm: {
       provider: "openai",
       apiKey: "",
@@ -259,6 +269,8 @@ function seedDatabase(database: Database) {
       autoEnrich: true,
       analysisAgents: 3,
       autoStatusConfidenceThreshold: 90,
+      verdictMaliciousThreshold: 80,
+      verdictSuspiciousThreshold: 45,
     },
     yara: { enabled: true, autoUpdate: true },
     sigma: {

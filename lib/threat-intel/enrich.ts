@@ -2,8 +2,10 @@ import { getAlertById } from "@/lib/db/alerts"
 import { upsertEnrichment } from "@/lib/db/enrichments"
 import { collectThreatIntelForIndicators } from "./index"
 import { extractIndicators } from "@/lib/indicators"
+import { systemLog } from "@/lib/system-log"
 
 export async function enrichAlertWithThreatIntel(alertId: string): Promise<void> {
+  systemLog("info", "threat-intel", "Starting threat intel enrichment", { alertId })
   const alert = await getAlertById(alertId)
   if (!alert) throw new Error(`Alert ${alertId} not found`)
 
@@ -25,4 +27,6 @@ export async function enrichAlertWithThreatIntel(alertId: string): Promise<void>
     ...(intel.geoCity ? { geoCity: intel.geoCity } : {}),
     ...(intel.asnInfo ? { asnInfo: intel.asnInfo } : {}),
   })
+
+  systemLog("info", "threat-intel", "Threat intel enrichment completed", { alertId, indicators: parsed })
 }

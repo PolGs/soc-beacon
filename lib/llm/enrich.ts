@@ -6,6 +6,7 @@ import { extractIndicators } from "@/lib/indicators"
 import { enrichAlertWithThreatIntel } from "@/lib/threat-intel/enrich"
 import { updateAlertIncidentStatus, updateAlertSeverity, updateAlertVerdict } from "@/lib/db/alerts"
 import type { AlertVerdict, Severity } from "@/lib/types"
+import { systemLog } from "@/lib/system-log"
 
 type AgentResult = {
   analysis: string
@@ -150,6 +151,7 @@ function aggregateSeverity(candidates: Severity[], fallback: Severity): Severity
 }
 
 export async function enrichAlertWithLLM(alertId: string): Promise<void> {
+  systemLog("info", "llm", "Starting LLM enrichment", { alertId })
   await enrichAlertWithThreatIntel(alertId).catch(() => {
     // Threat intel enrichment is best-effort.
   })
@@ -162,11 +164,15 @@ export async function enrichAlertWithLLM(alertId: string): Promise<void> {
     model: string
     analysisAgents?: number
     autoStatusConfidenceThreshold?: number
+    verdictMaliciousThreshold?: number
+    verdictSuspiciousThreshold?: number
   }>("llm", {
     provider: "openai",
     model: "gpt-4.1-nano",
     analysisAgents: 3,
     autoStatusConfidenceThreshold: 90,
+    verdictMaliciousThreshold: 80,
+    verdictSuspiciousThreshold: 45,
   })
 
   const indicators = extractIndicators([alert.title, alert.description, alert.rawLog].join("\n"))
@@ -230,11 +236,13 @@ ${sharedContext}`,
           agentResults.push(result)
           aiSuccessCount += 1
         }
-      } catch {
+      } catch (err) {
+        systemLog("warn", "llm", "Agent call failed", { alertId, error: String(err) })
         // Keep partial AI results from other agents; don't fail the whole enrichment.
       }
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "llm", "Failed to initialize LLM client", { alertId, error: String(err) })
     // Client initialization failed; use fallback below.
   }
 
@@ -285,12 +293,16 @@ ${sharedContext}`,
   })
 
   const autoStatusThreshold = settings.autoStatusConfidenceThreshold ?? 90
+  const maliciousThreshold = Math.max(1, Math.min(100, settings.verdictMaliciousThreshold ?? 80))
+  const suspiciousThreshold = Math.max(1, Math.min(maliciousThreshold - 1, settings.verdictSuspiciousThreshold ?? 45))
   const verdict: AlertVerdict =
-    avgAiScore >= 80 ? "malicious" : avgAiScore >= 45 ? "suspicious" : "false_positive"
+    avgAiScore >= maliciousThreshold ? "malicious" : avgAiScore >= suspiciousThreshold ? "suspicious" : "false_positive"
   await updateAlertVerdict(alertId, verdict)
   await updateAlertSeverity(alertId, recategorizedSeverity)
 
   if (alert.incidentStatus === "unassigned" && avgAiScore >= autoStatusThreshold) {
     await updateAlertIncidentStatus(alertId, "in_progress")
   }
+
+  systemLog("info", "llm", "LLM enrichment completed", { alertId, avgAiScore, verdict })
 }

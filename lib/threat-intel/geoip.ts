@@ -1,3 +1,5 @@
+import { systemLog } from "@/lib/system-log"
+
 interface GeoIPResult {
   country: string
   city: string
@@ -12,10 +14,16 @@ export async function lookupIP(ip: string): Promise<GeoIPResult | null> {
 
   try {
     const res = await fetch(`http://ip-api.com/json/${ip}?fields=country,city,isp,org,as`)
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "GeoIP lookup failed", { ip, status: res.status })
+      return null
+    }
     const data = await res.json()
 
-    if (data.status === "fail") return null
+    if (data.status === "fail") {
+      systemLog("warn", "threat-intel", "GeoIP lookup returned fail", { ip })
+      return null
+    }
 
     return {
       country: data.country || "",
@@ -24,7 +32,8 @@ export async function lookupIP(ip: string): Promise<GeoIPResult | null> {
       org: data.org || "",
       asn: data.as || "",
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "GeoIP lookup error", { ip, error: String(err) })
     return null
   }
 }

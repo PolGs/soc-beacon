@@ -1,3 +1,5 @@
+import { systemLog } from "@/lib/system-log"
+
 interface GoogleSafeBrowsingResult {
   summary: string
 }
@@ -33,7 +35,10 @@ export async function lookupUrl(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "Google Safe Browsing lookup failed", { url, status: res.status })
+      return null
+    }
 
     const data = (await res.json()) as { matches?: Array<{ threatType?: string }> }
     const matches = data.matches || []
@@ -45,7 +50,8 @@ export async function lookupUrl(
     return {
       summary: `Google Safe Browsing: matched ${matches.length} entries (${types.join(", ")})`,
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "Google Safe Browsing lookup error", { url, error: String(err) })
     return null
   }
 }

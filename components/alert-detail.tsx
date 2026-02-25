@@ -151,6 +151,14 @@ export function AlertDetail({ alert }: { alert: Alert }) {
                 <option value="resolved">Resolved</option>
               </select>
               <button
+                onClick={handleReEnrich}
+                disabled={enriching}
+                className="h-8 rounded-md border border-border/50 px-2 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors disabled:opacity-60 flex items-center gap-1"
+              >
+                {enriching ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                Re-analyze
+              </button>
+              <button
                 onClick={handleDeleteAlert}
                 disabled={deleting}
                 className="h-8 rounded-md border border-[hsl(var(--severity-critical))]/40 bg-[hsl(var(--severity-critical))]/10 px-2 text-[11px] text-[hsl(var(--severity-critical))] hover:bg-[hsl(var(--severity-critical))]/20 disabled:opacity-60 flex items-center gap-1"
@@ -163,13 +171,14 @@ export function AlertDetail({ alert }: { alert: Alert }) {
         </div>
 
         {/* Metadata grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-5 pt-5 border-t border-border/30">
-          <MetaItem icon={Server} label="Source" value={alert.source} />
-          <MetaItem icon={Globe} label="Source IP" value={alert.sourceIp} mono />
-          <MetaItem icon={Target} label="Dest IP" value={alert.destIp} mono />
-          <MetaItem icon={Shield} label="IOC Type" value={alert.enrichment.iocType} />
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-5 pt-5 border-t border-border/30">
+            <MetaItem icon={Server} label="Source" value={alert.source} />
+            <MetaItem icon={Globe} label="Source IP" value={alert.sourceIp} mono />
+            <MetaItem icon={Target} label="Dest IP" value={alert.destIp} mono />
+            <MetaItem icon={Shield} label="IOC Type" value={alert.enrichment.iocType} />
+            <MetaItem icon={FileCode} label="Parse Confidence" value={`${Math.round(alert.enrichment.parseConfidence ?? 0)}%`} />
+          </div>
         </div>
-      </div>
 
       {/* Tabs */}
       <Tabs defaultValue="analysis" className="w-full">
@@ -187,6 +196,13 @@ export function AlertDetail({ alert }: { alert: Alert }) {
           >
             <Shield className="w-3.5 h-3.5 mr-1.5" />
             MITRE ATT&CK
+          </TabsTrigger>
+          <TabsTrigger
+            value="sigma"
+            className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
+          >
+            <FileCode className="w-3.5 h-3.5 mr-1.5" />
+            Sigma Results
           </TabsTrigger>
           <TabsTrigger
             value="enrichment"
@@ -316,6 +332,113 @@ export function AlertDetail({ alert }: { alert: Alert }) {
                     </span>
                   ))}
                 </div>
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="sigma" className="mt-4">
+          <div className="glass rounded-lg p-5 flex flex-col gap-4">
+            {alert.enrichment.sigma ? (
+              <>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <FileCode className="w-4 h-4 text-foreground/60" />
+                    <h3 className="text-sm font-medium text-foreground">Matched Sigma Rule</h3>
+                  </div>
+                  <div className="bg-background/50 rounded-md p-4 border border-border/30">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-foreground">{alert.enrichment.sigma.title}</span>
+                      {alert.enrichment.sigma.ruleId && (
+                        <span className="text-[11px] font-mono text-muted-foreground">{alert.enrichment.sigma.ruleId}</span>
+                      )}
+                      {alert.enrichment.sigma.description && (
+                        <p className="text-[11px] text-foreground/70 mt-2">{alert.enrichment.sigma.description}</p>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                      <div className="bg-background/70 rounded-md p-3 border border-border/30">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Level</span>
+                        <p className="text-xs text-foreground mt-1">{alert.enrichment.sigma.level || "Unknown"}</p>
+                      </div>
+                      <div className="bg-background/70 rounded-md p-3 border border-border/30">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Status</span>
+                        <p className="text-xs text-foreground mt-1">{alert.enrichment.sigma.status || "Unknown"}</p>
+                      </div>
+                      <div className="bg-background/70 rounded-md p-3 border border-border/30">
+                        <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Source</span>
+                        <p className="text-[11px] font-mono text-foreground/70 mt-1 truncate">{alert.enrichment.sigma.source || "Local"}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {alert.enrichment.sigma.tags && alert.enrichment.sigma.tags.length > 0 && (
+                  <div className="bg-background/50 rounded-md p-4 border border-border/30">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Tags</span>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {alert.enrichment.sigma.tags.map((tag) => (
+                        <span key={tag} className="text-[11px] font-mono px-2 py-0.5 rounded bg-foreground/5 border border-border/30 text-foreground/70">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {alert.enrichment.sigma.references && alert.enrichment.sigma.references.length > 0 && (
+                  <div className="bg-background/50 rounded-md p-4 border border-border/30">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">References</span>
+                    <div className="flex flex-col gap-1 mt-2">
+                      {alert.enrichment.sigma.references.map((ref) => (
+                        <code key={ref} className="text-[11px] font-mono text-foreground/70 break-all">{ref}</code>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {alert.enrichment.sigma.condition && (
+                  <div className="bg-background/50 rounded-md p-4 border border-border/30">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Condition</span>
+                    <p className="text-[11px] font-mono text-foreground/70 mt-2">{alert.enrichment.sigma.condition}</p>
+                  </div>
+                )}
+
+                {alert.enrichment.sigma.matchDetails && alert.enrichment.sigma.matchDetails.length > 0 && (
+                  <div className="bg-background/50 rounded-md p-4 border border-border/30">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Matched Fields</span>
+                    <div className="mt-2 space-y-2">
+                      {alert.enrichment.sigma.matchDetails.map((detail, i) => (
+                        <div key={`${detail.field}-${i}`} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 bg-background/70 rounded-md p-3 border border-border/30">
+                          <div className="flex flex-col">
+                            <span className="text-[11px] text-muted-foreground">Selection</span>
+                            <span className="text-xs text-foreground">{detail.selection}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[11px] text-muted-foreground">Field</span>
+                            <span className="text-xs font-mono text-foreground/80">{detail.field}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[11px] text-muted-foreground">Operator</span>
+                            <span className="text-xs font-mono text-foreground/80">{detail.operator}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[11px] text-muted-foreground">Expected</span>
+                            <span className="text-xs font-mono text-foreground/80">{detail.expected}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[11px] text-muted-foreground">Actual</span>
+                            <span className="text-xs font-mono text-foreground/80">{detail.actual}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="bg-background/50 rounded-md p-4 border border-border/30 text-xs text-muted-foreground">
+                No Sigma rule matched this alert.
               </div>
             )}
           </div>

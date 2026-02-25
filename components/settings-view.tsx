@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,6 +11,8 @@ import { toast } from "sonner"
 import {
   saveSettingsAction,
   changePasswordAction,
+  getSigmaStatusAction,
+  syncSigmaRulesAction,
   addThreatFeedAction,
   removeThreatFeedAction,
   toggleThreatFeedAction,
@@ -29,6 +31,7 @@ import {
   EyeOff,
   Save,
   RotateCcw,
+  RefreshCw,
   Plus,
   Trash2,
   User,
@@ -97,6 +100,17 @@ function PasswordInput({
   )
 }
 
+function generateApiKey(): string {
+  if (typeof window === "undefined" || !window.crypto?.getRandomValues) {
+    return `sk-beacon-${Math.random().toString(36).slice(2)}`
+  }
+  const bytes = new Uint8Array(32)
+  window.crypto.getRandomValues(bytes)
+  const raw = String.fromCharCode(...bytes)
+  const base64 = btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "")
+  return `sk-beacon-${base64}`
+}
+
 interface SettingsViewProps {
   initialSettings: Record<string, unknown>
   initialFeeds: ThreatFeed[]
@@ -137,6 +151,8 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
   const [autoEnrich, setAutoEnrich] = useState(llm.autoEnrich !== false)
   const [analysisAgents, setAnalysisAgents] = useState(String(llm.analysisAgents || 3))
   const [autoStatusThreshold, setAutoStatusThreshold] = useState(String(llm.autoStatusConfidenceThreshold || 90))
+  const [verdictMaliciousThreshold, setVerdictMaliciousThreshold] = useState(String(llm.verdictMaliciousThreshold || 80))
+  const [verdictSuspiciousThreshold, setVerdictSuspiciousThreshold] = useState(String(llm.verdictSuspiciousThreshold || 45))
 
   // YARA Rules
   const [yaraEnabled, setYaraEnabled] = useState(yara.enabled !== false)
@@ -147,6 +163,9 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
   const [sigmaEnabled, setSigmaEnabled] = useState(!!sigma.enabled)
   const [sigmaRulesPath, setSigmaRulesPath] = useState((sigma.rulesPath as string) || "")
   const [sigmaMaxRules, setSigmaMaxRules] = useState(String(sigma.maxRules || 500))
+  const [sigmaStatus, setSigmaStatus] = useState<{ totalFiles: number; compiled: number; lastSyncAt?: string; lastSyncStatus?: string; lastSyncError?: string } | null>(null)
+  const [sigmaSyncing, setSigmaSyncing] = useState(false)
+  const [sigmaStatusLoading, setSigmaStatusLoading] = useState(false)
 
   // Syslog Output
   const [syslogOutputEnabled, setSyslogOutputEnabled] = useState(!!(syslogOut.enabled))
@@ -239,6 +258,48 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
     }
     setSaving(null)
   }
+
+  const loadSigmaStatus = async () => {
+    setSigmaStatusLoading(true)
+    const result = await getSigmaStatusAction()
+    if (result.success && result.status) {
+      setSigmaStatus({
+        totalFiles: result.status.totalFiles,
+        compiled: result.status.compiled,
+        lastSyncAt: result.status.lastSyncAt,
+        lastSyncStatus: result.status.lastSyncStatus,
+        lastSyncError: result.status.lastSyncError,
+      })
+      if (result.status.rulesPath) {
+        setSigmaRulesPath(result.status.rulesPath)
+      }
+    }
+    setSigmaStatusLoading(false)
+  }
+
+  const handleSigmaSync = async () => {
+    setSigmaSyncing(true)
+    const result = await syncSigmaRulesAction()
+    if (result.success && result.status) {
+      setSigmaEnabled(true)
+      setSigmaRulesPath(result.status.rulesPath)
+      setSigmaStatus({
+        totalFiles: result.status.totalFiles,
+        compiled: result.status.compiled,
+        lastSyncAt: result.status.lastSyncAt,
+        lastSyncStatus: result.status.lastSyncStatus,
+        lastSyncError: result.status.lastSyncError,
+      })
+      toast.success("SigmaHQ rules synced")
+    } else {
+      toast.error(result.error || "Failed to sync Sigma rules")
+    }
+    setSigmaSyncing(false)
+  }
+
+  useEffect(() => {
+    loadSigmaStatus()
+  }, [])
 
   const SaveButton = ({ section, onClick }: { section: string; onClick: () => void }) => (
     <Button
@@ -370,7 +431,7 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
                   <div className="flex items-center gap-2">
                     <PasswordInput id="apiKey" value={apiKey} onChange={setApiKey} placeholder="sk-beacon-..." />
                     <Button variant="ghost" size="sm" className="h-8 px-2 text-muted-foreground hover:text-foreground shrink-0"
-                      onClick={() => { const newKey = `sk-beacon-${Math.random().toString(36).substring(2, 18)}`; setApiKey(newKey); toast.success("API key regenerated") }}>
+                      onClick={() => { const newKey = generateApiKey(); setApiKey(newKey); toast.success("API key regenerated") }}>
                       <RotateCcw className="w-3.5 h-3.5" />
                     </Button>
                   </div>
@@ -407,7 +468,7 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
               <Input value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="gpt-4.1-nano" className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">API Endpoint</Label>
               <Input value={llmEndpoint} onChange={(e) => setLlmEndpoint(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
@@ -427,6 +488,14 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
             <div className="flex flex-col gap-1.5">
               <Label className="text-[11px] text-muted-foreground">Auto Incident Threshold (%)</Label>
               <Input type="number" min="1" max="100" value={autoStatusThreshold} onChange={(e) => setAutoStatusThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-[11px] text-muted-foreground">Malicious Threshold (%)</Label>
+              <Input type="number" min="1" max="100" value={verdictMaliciousThreshold} onChange={(e) => setVerdictMaliciousThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-[11px] text-muted-foreground">Suspicious Threshold (%)</Label>
+              <Input type="number" min="1" max="99" value={verdictSuspiciousThreshold} onChange={(e) => setVerdictSuspiciousThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
           </div>
           <div className="flex items-center justify-between py-1">
@@ -451,7 +520,19 @@ Model default: gpt-4.1-nano`}
             </pre>
           </div>
           <div className="flex justify-end">
-            <SaveButton section="LLM" onClick={() => handleSave("llm", { provider: llmProvider, apiKey: llmApiKey, model: llmModel, endpoint: llmEndpoint, maxTokens: parseInt(llmMaxTokens) || 700, temperature: parseFloat(llmTemperature) || 0.1, autoEnrich, analysisAgents: Math.max(1, Math.min(4, parseInt(analysisAgents) || 3)), autoStatusConfidenceThreshold: Math.max(1, Math.min(100, parseInt(autoStatusThreshold) || 90)) })} />
+            <SaveButton section="LLM" onClick={() => handleSave("llm", {
+              provider: llmProvider,
+              apiKey: llmApiKey,
+              model: llmModel,
+              endpoint: llmEndpoint,
+              maxTokens: parseInt(llmMaxTokens) || 700,
+              temperature: parseFloat(llmTemperature) || 0.1,
+              autoEnrich,
+              analysisAgents: Math.max(1, Math.min(4, parseInt(analysisAgents) || 3)),
+              autoStatusConfidenceThreshold: Math.max(1, Math.min(100, parseInt(autoStatusThreshold) || 90)),
+              verdictMaliciousThreshold: Math.max(1, Math.min(100, parseInt(verdictMaliciousThreshold) || 80)),
+              verdictSuspiciousThreshold: Math.max(1, Math.min(99, parseInt(verdictSuspiciousThreshold) || 45)),
+            })} />
           </div>
         </SectionCard>
       </TabsContent>
@@ -538,6 +619,38 @@ Model default: gpt-4.1-nano`}
               </div>
             </>
           )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              onClick={handleSigmaSync}
+              disabled={sigmaSyncing}
+            >
+              {sigmaSyncing ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 mr-1.5" />}
+              Download/Update SigmaHQ Rules
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+              onClick={loadSigmaStatus}
+              disabled={sigmaStatusLoading}
+            >
+              {sigmaStatusLoading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+              Refresh Status
+            </Button>
+          </div>
+          <div className="bg-background/40 rounded-md p-3 border border-border/20 text-[11px] text-muted-foreground">
+            <div className="flex flex-col gap-1">
+              <span>Rules loaded: {sigmaStatus ? `${sigmaStatus.compiled} compiled / ${sigmaStatus.totalFiles} files` : "unknown"}</span>
+              <span>Last sync: {sigmaStatus?.lastSyncAt ? new Date(sigmaStatus.lastSyncAt).toLocaleString() : "never"}</span>
+              <span>Status: {sigmaStatus?.lastSyncStatus || "unknown"}</span>
+              {sigmaStatus?.lastSyncError && (
+                <span className="text-red-400">Error: {sigmaStatus.lastSyncError}</span>
+              )}
+            </div>
+          </div>
           <div className="flex justify-end">
             <SaveButton section="Sigma" onClick={() => handleSave("sigma", { enabled: sigmaEnabled, rulesPath: sigmaRulesPath, maxRules: Math.max(10, Math.min(5000, parseInt(sigmaMaxRules) || 500)) })} />
           </div>

@@ -3,12 +3,20 @@
 import { login, logout, getSession } from "@/lib/auth"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { setSetting } from "@/lib/db/settings"
-import { changePassword } from "@/lib/db/users"
+import { getSetting, setSetting } from "@/lib/db/settings"
+import { changePassword, forceSetPassword, isDefaultAdminPassword } from "@/lib/db/users"
 import { deleteAlert as dbDeleteAlert, updateAlertIncidentStatus as dbUpdateAlertIncidentStatus, updateAlertVerdict as dbUpdateAlertVerdict } from "@/lib/db/alerts"
 import { addThreatFeed, removeThreatFeed, toggleThreatFeed, updateThreatFeedApiKey } from "@/lib/db/threat-feeds"
 import { toggleYaraRule } from "@/lib/db/yara-rules"
 import type { IncidentStatus, AlertVerdict } from "@/lib/types"
+import { systemLog } from "@/lib/system-log"
+import path from "path"
+import fs from "fs"
+import { execFile } from "child_process"
+import { promisify } from "util"
+import { getSigmaStatus } from "@/lib/sigma"
+
+const execFileAsync = promisify(execFile)
 
 // Auth actions
 
@@ -48,6 +56,23 @@ export async function changePasswordAction(
   return changePassword(session.user, currentPassword, newPassword)
 }
 
+export async function forceChangeDefaultPasswordAction(
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  const session = await getSession()
+  if (!session) return { success: false, error: "Not authenticated" }
+  if (session.user !== "admin") return { success: false, error: "Only admin can change default password" }
+  if (newPassword.length < 8) {
+    return { success: false, error: "Password must be at least 8 characters" }
+  }
+
+  const isDefault = await isDefaultAdminPassword()
+  if (!isDefault) return { success: false, error: "Default password already changed" }
+
+  await forceSetPassword("admin", newPassword)
+  return { success: true }
+}
+
 // Settings actions
 
 export async function saveSettingsAction(
@@ -66,12 +91,74 @@ export async function saveSettingsAction(
       parsed.apiKey = apiKey
     }
 
+    if (section === "api") {
+      const enabled = parsed.enabled !== false
+      const apiKey = String(parsed.apiKey || "").trim()
+      if (enabled && apiKey.length < 24) {
+        return { success: false, error: "API key must be set and at least 24 characters long." }
+      }
+      parsed.apiKey = apiKey
+    }
+
     await setSetting(section, parsed)
     revalidatePath("/dashboard/settings")
     revalidatePath("/dashboard")
     return { success: true }
   } catch (e) {
     return { success: false, error: String(e) }
+  }
+}
+
+export async function getSigmaStatusAction(): Promise<{ success: boolean; status?: Awaited<ReturnType<typeof getSigmaStatus>>; error?: string }> {
+  try {
+    const status = await getSigmaStatus()
+    return { success: true, status }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+}
+
+export async function syncSigmaRulesAction(): Promise<{ success: boolean; status?: Awaited<ReturnType<typeof getSigmaStatus>>; error?: string }> {
+  try {
+    const baseDir = path.join(process.cwd(), "data", "sigma")
+    const rulesPath = path.join(baseDir, "rules")
+
+    if (!fs.existsSync(baseDir)) fs.mkdirSync(baseDir, { recursive: true })
+
+    const isRepo = fs.existsSync(path.join(baseDir, ".git"))
+
+    systemLog("info", "sigma", isRepo ? "Updating SigmaHQ repository" : "Cloning SigmaHQ repository", { baseDir })
+
+    if (isRepo) {
+      await execFileAsync("git", ["-C", baseDir, "pull"])
+    } else {
+      await execFileAsync("git", ["clone", "https://github.com/SigmaHQ/sigma.git", baseDir])
+    }
+
+    const existing = await getSetting<Record<string, unknown>>("sigma", { enabled: true, rulesPath, maxRules: 500 })
+    const updated = {
+      ...existing,
+      enabled: true,
+      rulesPath,
+      lastSyncAt: new Date().toISOString(),
+      lastSyncStatus: "success",
+      lastSyncError: "",
+    }
+    await setSetting("sigma", updated)
+
+    const status = await getSigmaStatus()
+    systemLog("info", "sigma", "SigmaHQ sync complete", { compiled: status.compiled, totalFiles: status.totalFiles })
+    return { success: true, status }
+  } catch (err) {
+    const existing = await getSetting<Record<string, unknown>>("sigma", { enabled: false, rulesPath: "", maxRules: 500 })
+    await setSetting("sigma", {
+      ...existing,
+      lastSyncAt: new Date().toISOString(),
+      lastSyncStatus: "error",
+      lastSyncError: String(err),
+    })
+    systemLog("error", "sigma", "SigmaHQ sync failed", { error: String(err) })
+    return { success: false, error: String(err) }
   }
 }
 

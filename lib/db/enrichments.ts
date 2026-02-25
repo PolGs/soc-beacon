@@ -1,5 +1,5 @@
 import { getDb, persistDb } from "./index"
-import type { AlertEnrichment } from "../types"
+import type { AlertEnrichment, SigmaMatch } from "../types"
 
 function stmtToObjects(db: Awaited<ReturnType<typeof getDb>>, sql: string, params: unknown[] = []): Record<string, unknown>[] {
   const stmt = db.prepare(sql)
@@ -31,6 +31,8 @@ export async function getEnrichment(alertId: string): Promise<AlertEnrichment | 
       ? { country: r.geo_country as string, city: (r.geo_city as string) || "" }
       : null,
     asnInfo: (r.asn_info as string) || null,
+    parseConfidence: typeof r.parse_confidence === "number" ? (r.parse_confidence as number) : undefined,
+    sigma: r.sigma_match ? JSON.parse(r.sigma_match as string) : null,
   }
 }
 
@@ -48,6 +50,8 @@ export async function upsertEnrichment(
     geoCountry: string
     geoCity: string
     asnInfo: string
+    sigmaMatch: SigmaMatch | null
+    parseConfidence: number
     llmProvider: string
     llmModel: string
   }>
@@ -69,6 +73,8 @@ export async function upsertEnrichment(
     if (data.geoCountry !== undefined) { updates.push("geo_country = ?"); params.push(data.geoCountry) }
     if (data.geoCity !== undefined) { updates.push("geo_city = ?"); params.push(data.geoCity) }
     if (data.asnInfo !== undefined) { updates.push("asn_info = ?"); params.push(data.asnInfo) }
+    if (data.sigmaMatch !== undefined) { updates.push("sigma_match = ?"); params.push(data.sigmaMatch ? JSON.stringify(data.sigmaMatch) : null) }
+    if (data.parseConfidence !== undefined) { updates.push("parse_confidence = ?"); params.push(data.parseConfidence) }
     if (data.llmProvider !== undefined) { updates.push("llm_provider = ?"); params.push(data.llmProvider) }
     if (data.llmModel !== undefined) { updates.push("llm_model = ?"); params.push(data.llmModel) }
     updates.push("enriched_at = datetime('now')")
@@ -79,8 +85,8 @@ export async function upsertEnrichment(
     }
   } else {
     db.run(
-      `INSERT INTO alert_enrichments (alert_id, ai_analysis, ioc_type, threat_intel, recommendation, confidence, ai_score, heuristics_score, related_cves, geo_country, geo_city, asn_info, llm_provider, llm_model)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO alert_enrichments (alert_id, ai_analysis, ioc_type, threat_intel, recommendation, confidence, ai_score, heuristics_score, related_cves, geo_country, geo_city, asn_info, sigma_match, parse_confidence, llm_provider, llm_model)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         alertId,
         data.aiAnalysis || null,
@@ -94,6 +100,8 @@ export async function upsertEnrichment(
         data.geoCountry || null,
         data.geoCity || null,
         data.asnInfo || null,
+        data.sigmaMatch ? JSON.stringify(data.sigmaMatch) : null,
+        data.parseConfidence ?? null,
         data.llmProvider || null,
         data.llmModel || null,
       ]

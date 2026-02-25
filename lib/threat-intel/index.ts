@@ -8,6 +8,7 @@ import * as googleSafeBrowsing from "./google-safe-browsing"
 import * as threatfox from "./threatfox"
 import * as spamhausDrop from "./spamhaus-drop"
 import type { ExtractedIndicators } from "@/lib/indicators"
+import { systemLog } from "@/lib/system-log"
 
 interface ThreatIntelResult {
   threatIntel: string
@@ -69,6 +70,12 @@ export async function lookupIP(ip: string): Promise<ThreatIntelResult> {
 }
 
 export async function collectThreatIntelForIndicators(indicators: ExtractedIndicators): Promise<ThreatIntelSnapshot> {
+  systemLog("info", "threat-intel", "Collecting indicators", {
+    ips: indicators.ips.length,
+    urls: indicators.urls.length,
+    domains: indicators.domains.length,
+    hashes: indicators.hashes.length,
+  })
   const feeds = await getThreatFeeds()
   const summaries: string[] = []
 

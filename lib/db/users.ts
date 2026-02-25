@@ -55,3 +55,17 @@ export async function createUser(username: string, password: string): Promise<st
   persistDb()
   return id
 }
+
+export async function isDefaultAdminPassword(): Promise<boolean> {
+  const db = await getDb()
+  const rows = stmtToObjects(db, "SELECT username, password_hash FROM users WHERE username = ?", ["admin"])
+  if (rows.length === 0) return false
+  return compareSync("admin", rows[0].password_hash as string)
+}
+
+export async function forceSetPassword(username: string, newPassword: string): Promise<void> {
+  const db = await getDb()
+  const hash = hashSync(newPassword, 10)
+  db.run("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE username = ?", [hash, username])
+  persistDb()
+}

@@ -1,3 +1,5 @@
+import { systemLog } from "@/lib/system-log"
+
 interface AbuseIPDBResult {
   abuseConfidenceScore: number
   totalReports: number
@@ -18,7 +20,10 @@ export async function checkIP(ip: string, apiKey: string): Promise<AbuseIPDBResu
         },
       }
     )
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "AbuseIPDB lookup failed", { ip, status: res.status })
+      return null
+    }
     const data = await res.json()
     const d = data.data
     if (!d) return null
@@ -31,7 +36,8 @@ export async function checkIP(ip: string, apiKey: string): Promise<AbuseIPDBResu
       domain: d.domain || "",
       summary: `AbuseIPDB: ${d.abuseConfidenceScore}% abuse confidence, ${d.totalReports} reports, ISP: ${d.isp || "Unknown"}`,
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "AbuseIPDB lookup error", { ip, error: String(err) })
     return null
   }
 }

@@ -1,3 +1,5 @@
+import { systemLog } from "@/lib/system-log"
+
 interface SpamhausResult {
   summary: string
 }
@@ -30,7 +32,10 @@ async function loadDropList(): Promise<string[]> {
 
   try {
     const res = await fetch("https://www.spamhaus.org/drop/drop.txt")
-    if (!res.ok) return cache.cidrs
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "Spamhaus DROP download failed", { status: res.status })
+      return cache.cidrs
+    }
 
     const text = await res.text()
     const cidrs = text
@@ -42,7 +47,8 @@ async function loadDropList(): Promise<string[]> {
 
     cache = { loadedAt: Date.now(), cidrs }
     return cidrs
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "Spamhaus DROP download error", { error: String(err) })
     return cache.cidrs
   }
 }

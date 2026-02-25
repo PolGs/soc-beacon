@@ -1,3 +1,5 @@
+import { systemLog } from "@/lib/system-log"
+
 interface VTResult {
   malicious: number
   suspicious: number
@@ -11,7 +13,10 @@ export async function lookupIP(ip: string, apiKey: string): Promise<VTResult | n
     const res = await fetch(`https://www.virustotal.com/api/v3/ip_addresses/${ip}`, {
       headers: { "x-apikey": apiKey },
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "VirusTotal IP lookup failed", { ip, status: res.status })
+      return null
+    }
     const data = await res.json()
     const stats = data.data?.attributes?.last_analysis_stats || {}
     return {
@@ -21,7 +26,8 @@ export async function lookupIP(ip: string, apiKey: string): Promise<VTResult | n
       undetected: stats.undetected || 0,
       summary: `VT: ${stats.malicious || 0} malicious, ${stats.suspicious || 0} suspicious out of ${(stats.malicious || 0) + (stats.suspicious || 0) + (stats.harmless || 0) + (stats.undetected || 0)} engines`,
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "VirusTotal IP lookup error", { ip, error: String(err) })
     return null
   }
 }
@@ -31,7 +37,10 @@ export async function lookupDomain(domain: string, apiKey: string): Promise<VTRe
     const res = await fetch(`https://www.virustotal.com/api/v3/domains/${domain}`, {
       headers: { "x-apikey": apiKey },
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "VirusTotal domain lookup failed", { domain, status: res.status })
+      return null
+    }
     const data = await res.json()
     const stats = data.data?.attributes?.last_analysis_stats || {}
     return {
@@ -41,7 +50,8 @@ export async function lookupDomain(domain: string, apiKey: string): Promise<VTRe
       undetected: stats.undetected || 0,
       summary: `VT: ${stats.malicious || 0} malicious, ${stats.suspicious || 0} suspicious detections`,
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "VirusTotal domain lookup error", { domain, error: String(err) })
     return null
   }
 }
@@ -51,7 +61,10 @@ export async function lookupHash(hash: string, apiKey: string): Promise<VTResult
     const res = await fetch(`https://www.virustotal.com/api/v3/files/${hash}`, {
       headers: { "x-apikey": apiKey },
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      systemLog("warn", "threat-intel", "VirusTotal hash lookup failed", { hash, status: res.status })
+      return null
+    }
     const data = await res.json()
     const stats = data.data?.attributes?.last_analysis_stats || {}
     return {
@@ -61,7 +74,8 @@ export async function lookupHash(hash: string, apiKey: string): Promise<VTResult
       undetected: stats.undetected || 0,
       summary: `VT: ${stats.malicious || 0}/${(stats.malicious || 0) + (stats.harmless || 0) + (stats.undetected || 0)} engines flagged`,
     }
-  } catch {
+  } catch (err) {
+    systemLog("error", "threat-intel", "VirusTotal hash lookup error", { hash, error: String(err) })
     return null
   }
 }
