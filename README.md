@@ -13,6 +13,10 @@
 
 ---
 
+<img width="1200" height="1257" alt="image" src="https://github.com/user-attachments/assets/8bae7fcb-170f-4b69-acce-0803fd94e4e2" />
+
+
+
 ## The Problem
 
 Security teams drown in logs. Traditional SIEMs cost six figures, take months to deploy, and still require analysts to manually triage thousands of alerts. Small and mid-size teams are left choosing between "too expensive" and "too manual."
