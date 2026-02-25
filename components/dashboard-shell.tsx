@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { forceChangeDefaultPasswordAction, logoutAction } from "@/app/actions"
@@ -11,7 +12,6 @@ import {
   Settings,
   FileText,
   LogOut,
-  Radio,
   ChevronLeft,
   ChevronRight,
   Lock,
@@ -123,7 +123,7 @@ export function DashboardShell({
             "flex items-center h-14 border-b border-border/50 px-4 shrink-0",
             collapsed ? "justify-center" : "gap-2.5"
           )}>
-            <Radio className="w-5 h-5 text-foreground shrink-0" />
+            <Image src="/logo.png" alt="SOC Beacon" width={28} height={28} className="shrink-0 rounded" />
             {!collapsed && (
               <span className="text-sm font-semibold tracking-tight text-foreground truncate">
                 SOC Beacon

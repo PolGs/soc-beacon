@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, useRef, useCallback } from "react"
 import Link from "next/link"
 import type { Alert, Severity, IncidentStatus } from "@/lib/types"
 import { SeverityBadge } from "@/components/severity-badge"
@@ -8,8 +8,24 @@ import { StatusBadge } from "@/components/status-badge"
 import { VerdictBadge } from "@/components/verdict-badge"
 import { ScoreRing } from "@/components/score-ring"
 import { cn } from "@/lib/utils"
-import { Search, Filter, ChevronRight, ArrowUpDown, Columns3 } from "lucide-react"
+import {
+  Search,
+  Filter,
+  ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUpDown,
+  Columns3,
+  GripVertical,
+  Eye,
+  EyeOff,
+  X,
+} from "lucide-react"
 import { Input } from "@/components/ui/input"
+
+// ──────────────────────────────────────────────────────────────────
+// Types & Constants
+// ──────────────────────────────────────────────────────────────────
 
 const severityFilters: { key: Severity | "all"; label: string }[] = [
   { key: "all", label: "All" },
@@ -39,6 +55,7 @@ type SortKey =
   | "heuristicsScore"
   | "timestamp"
   | "ingestedAt"
+  | "lastAnalyzedAt"
 
 type SortDirection = "asc" | "desc"
 
@@ -52,36 +69,70 @@ type ColumnKey =
   | "incident"
   | "aiScore"
   | "heuristicsScore"
-  | "times"
+  | "alertTime"
+  | "ingestedAt"
+  | "lastAnalyzed"
 
-const columnLabels: Record<ColumnKey, string> = {
-  severity: "Sev.",
-  id: "ID",
-  alert: "Alert",
-  source: "Source",
-  mitreTactic: "MITRE Tactic",
-  verdict: "Verdict",
-  incident: "Incident",
-  aiScore: "AI Score",
-  heuristicsScore: "Heuristics",
-  times: "Times",
+// ──────────────────────────────────────────────────────────────────
+// Time Cell helper
+// ──────────────────────────────────────────────────────────────────
+
+function formatTs(ts: string): { date: string; time: string } {
+  const d = new Date(ts)
+  return {
+    date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    time: d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }),
+  }
 }
 
-const defaultVisibleColumns: ColumnKey[] = [
-  "severity",
-  "id",
-  "alert",
-  "source",
-  "verdict",
-  "incident",
-  "aiScore",
-  "heuristicsScore",
-  "times",
+function TimeCell({ ts, label, dimmed, fallback }: { ts?: string; label: string; dimmed?: boolean; fallback?: string }) {
+  if (!ts) {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[9px] uppercase tracking-wider text-muted-foreground/40 font-medium">{label}</span>
+        <span className="text-[11px] text-muted-foreground/30 font-mono">{fallback ?? "—"}</span>
+      </div>
+    )
+  }
+  const { date, time } = formatTs(ts)
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className={cn("text-[9px] uppercase tracking-wider font-medium", dimmed ? "text-muted-foreground/40" : "text-muted-foreground/50")}>
+        {label}
+      </span>
+      <span className={cn("text-[11px] font-mono tabular-nums whitespace-nowrap", dimmed ? "text-muted-foreground/60" : "text-foreground/75")}>
+        {date}
+      </span>
+      <span className={cn("text-[10px] font-mono tabular-nums whitespace-nowrap", dimmed ? "text-muted-foreground/40" : "text-muted-foreground/60")}>
+        {time}
+      </span>
+    </div>
+  )
+}
+
+interface ColumnDef {
+  key: ColumnKey
+  label: string
+  sortKey?: SortKey
+  /** min breakpoint class for responsive hiding */
+  minBreakpoint?: string
+  defaultVisible: boolean
+}
+
+const ALL_COLUMNS: ColumnDef[] = [
+  { key: "severity", label: "Severity", sortKey: "severity", defaultVisible: true },
+  { key: "id", label: "ID", sortKey: "id", defaultVisible: true },
+  { key: "alert", label: "Alert", sortKey: "title", defaultVisible: true },
+  { key: "source", label: "Source", sortKey: "source", minBreakpoint: "md", defaultVisible: true },
+  { key: "mitreTactic", label: "MITRE Tactic", sortKey: "mitreTactic", minBreakpoint: "lg", defaultVisible: false },
+  { key: "verdict", label: "Verdict", sortKey: "verdict", minBreakpoint: "md", defaultVisible: true },
+  { key: "incident", label: "Incident", sortKey: "incidentStatus", minBreakpoint: "md", defaultVisible: true },
+  { key: "aiScore", label: "AI Score", sortKey: "aiScore", minBreakpoint: "xl", defaultVisible: true },
+  { key: "heuristicsScore", label: "Heuristics", sortKey: "heuristicsScore", minBreakpoint: "xl", defaultVisible: true },
+  { key: "alertTime", label: "Alert Time", sortKey: "timestamp", defaultVisible: true },
+  { key: "ingestedAt", label: "Ingested", sortKey: "ingestedAt", defaultVisible: true },
+  { key: "lastAnalyzed", label: "Last Analyzed", sortKey: "lastAnalyzedAt", defaultVisible: false },
 ]
-
-interface AlertsViewProps {
-  initialAlerts: Alert[]
-}
 
 const severityWeight: Record<Severity, number> = {
   info: 0,
@@ -91,9 +142,9 @@ const severityWeight: Record<Severity, number> = {
   critical: 4,
 }
 
-function compareText(a: string, b: string): number {
-  return a.localeCompare(b, undefined, { sensitivity: "base" })
-}
+// ──────────────────────────────────────────────────────────────────
+// Sorting
+// ──────────────────────────────────────────────────────────────────
 
 function sortAlerts(items: Alert[], key: SortKey, direction: SortDirection): Alert[] {
   const sorted = [...items].sort((a, b) => {
@@ -103,22 +154,22 @@ function sortAlerts(items: Alert[], key: SortKey, direction: SortDirection): Ale
         result = severityWeight[a.severity] - severityWeight[b.severity]
         break
       case "id":
-        result = compareText(a.id, b.id)
+        result = a.id.localeCompare(b.id)
         break
       case "title":
-        result = compareText(a.title, b.title)
+        result = a.title.localeCompare(b.title)
         break
       case "source":
-        result = compareText(a.source, b.source)
+        result = a.source.localeCompare(b.source)
         break
       case "mitreTactic":
-        result = compareText(a.mitreTactic, b.mitreTactic)
+        result = a.mitreTactic.localeCompare(b.mitreTactic)
         break
       case "verdict":
-        result = compareText(a.verdict, b.verdict)
+        result = a.verdict.localeCompare(b.verdict)
         break
       case "incidentStatus":
-        result = compareText(a.incidentStatus, b.incidentStatus)
+        result = a.incidentStatus.localeCompare(b.incidentStatus)
         break
       case "aiScore":
         result = (a.enrichment.aiScore || 0) - (b.enrichment.aiScore || 0)
@@ -128,6 +179,9 @@ function sortAlerts(items: Alert[], key: SortKey, direction: SortDirection): Ale
         break
       case "ingestedAt":
         result = new Date(a.ingestedAt || a.timestamp).getTime() - new Date(b.ingestedAt || b.timestamp).getTime()
+        break
+      case "lastAnalyzedAt":
+        result = new Date(a.lastAnalyzedAt || a.ingestedAt || a.timestamp).getTime() - new Date(b.lastAnalyzedAt || b.ingestedAt || b.timestamp).getTime()
         break
       case "timestamp":
       default:
@@ -139,6 +193,176 @@ function sortAlerts(items: Alert[], key: SortKey, direction: SortDirection): Ale
   return sorted
 }
 
+// ──────────────────────────────────────────────────────────────────
+// Column Manager Panel
+// ──────────────────────────────────────────────────────────────────
+
+interface ColumnManagerProps {
+  columnOrder: ColumnKey[]
+  visibleColumns: Set<ColumnKey>
+  onToggle: (key: ColumnKey) => void
+  onReorder: (newOrder: ColumnKey[]) => void
+  onClose: () => void
+}
+
+function ColumnManager({ columnOrder, visibleColumns, onToggle, onReorder, onClose }: ColumnManagerProps) {
+  const dragKey = useRef<ColumnKey | null>(null)
+  const dragOver = useRef<ColumnKey | null>(null)
+  const [, forceRender] = useState(0)
+
+  const handleDragStart = (key: ColumnKey) => {
+    dragKey.current = key
+  }
+
+  const handleDragEnter = (key: ColumnKey) => {
+    if (dragKey.current === key) return
+    dragOver.current = key
+    forceRender((n) => n + 1)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    if (!dragKey.current || !dragOver.current || dragKey.current === dragOver.current) {
+      dragKey.current = null
+      dragOver.current = null
+      return
+    }
+    const newOrder = [...columnOrder]
+    const fromIdx = newOrder.indexOf(dragKey.current)
+    const toIdx = newOrder.indexOf(dragOver.current)
+    newOrder.splice(fromIdx, 1)
+    newOrder.splice(toIdx, 0, dragKey.current)
+    onReorder(newOrder)
+    dragKey.current = null
+    dragOver.current = null
+  }
+
+  const handleDragEnd = () => {
+    dragKey.current = null
+    dragOver.current = null
+    forceRender((n) => n + 1)
+  }
+
+  const columnMap = useMemo(() => {
+    const m: Record<string, ColumnDef> = {}
+    for (const c of ALL_COLUMNS) m[c.key] = c
+    return m
+  }, [])
+
+  return (
+    <div className="absolute right-0 top-9 z-30 w-64 rounded-lg border border-border/60 bg-card shadow-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2.5 border-b border-border/40 bg-muted/20">
+        <span className="text-[11px] font-medium text-foreground">Manage Columns</span>
+        <button onClick={onClose} className="p-0.5 rounded hover:bg-foreground/10 text-muted-foreground">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="text-[10px] text-muted-foreground/50 px-3 pt-2 pb-1">
+        Drag to reorder · Click eye to show/hide
+      </div>
+      {/* Sortable list */}
+      <ul
+        className="flex flex-col p-2 gap-0.5"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleDrop}
+      >
+        {columnOrder.map((key) => {
+          const col = columnMap[key]
+          if (!col) return null
+          const isVisible = visibleColumns.has(key)
+          const isDragTarget = dragOver.current === key && dragKey.current !== key
+          return (
+            <li
+              key={key}
+              draggable
+              onDragStart={() => handleDragStart(key)}
+              onDragEnter={() => handleDragEnter(key)}
+              onDragEnd={handleDragEnd}
+              className={cn(
+                "flex items-center gap-2 px-2 py-1.5 rounded-md cursor-grab select-none transition-colors",
+                isDragTarget
+                  ? "bg-foreground/10 border border-foreground/20 border-dashed"
+                  : "hover:bg-foreground/5 border border-transparent"
+              )}
+            >
+              <GripVertical className="w-3 h-3 text-muted-foreground/30 shrink-0" />
+              <span
+                className={cn(
+                  "flex-1 text-[11px]",
+                  isVisible ? "text-foreground/80" : "text-muted-foreground/40 line-through"
+                )}
+              >
+                {col.label}
+              </span>
+              <button
+                onClick={() => onToggle(key)}
+                className={cn(
+                  "p-0.5 rounded transition-colors",
+                  isVisible
+                    ? "text-foreground/50 hover:text-foreground"
+                    : "text-muted-foreground/25 hover:text-muted-foreground"
+                )}
+                title={isVisible ? "Hide column" : "Show column"}
+              >
+                {isVisible ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+      {/* Footer actions */}
+      <div className="flex items-center gap-2 px-3 py-2 border-t border-border/30 bg-muted/10">
+        <button
+          onClick={() => {
+            for (const c of ALL_COLUMNS) {
+              if (!visibleColumns.has(c.key)) onToggle(c.key)
+            }
+          }}
+          className="text-[10px] text-muted-foreground hover:text-foreground"
+        >
+          Show all
+        </button>
+        <span className="text-border/40">·</span>
+        <button
+          onClick={() => {
+            const defaultVisible = new Set(ALL_COLUMNS.filter((c) => c.defaultVisible).map((c) => c.key))
+            for (const c of ALL_COLUMNS) {
+              const shouldBeVisible = defaultVisible.has(c.key)
+              if (shouldBeVisible !== visibleColumns.has(c.key)) onToggle(c.key)
+            }
+            onReorder(ALL_COLUMNS.map((c) => c.key))
+          }}
+          className="text-[10px] text-muted-foreground hover:text-foreground"
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Sort Indicator
+// ──────────────────────────────────────────────────────────────────
+
+function SortIcon({ colKey, sortKey, direction }: { colKey: SortKey; sortKey: SortKey; direction: SortDirection }) {
+  if (colKey !== sortKey) return <ChevronsUpDown className="w-3 h-3 opacity-30" />
+  return direction === "asc" ? (
+    <ArrowUp className="w-3 h-3 text-foreground/70" />
+  ) : (
+    <ArrowDown className="w-3 h-3 text-foreground/70" />
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Main Component
+// ──────────────────────────────────────────────────────────────────
+
+interface AlertsViewProps {
+  initialAlerts: Alert[]
+}
+
 export function AlertsView({ initialAlerts }: AlertsViewProps) {
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all")
   const [incidentStatusFilter, setIncidentStatusFilter] = useState<IncidentStatus | "all">("all")
@@ -146,7 +370,10 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
   const [sortKey, setSortKey] = useState<SortKey>("timestamp")
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc")
   const [columnsOpen, setColumnsOpen] = useState(false)
-  const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(defaultVisibleColumns)
+  const [columnOrder, setColumnOrder] = useState<ColumnKey[]>(ALL_COLUMNS.map((c) => c.key))
+  const [visibleColumns, setVisibleColumns] = useState<Set<ColumnKey>>(
+    new Set(ALL_COLUMNS.filter((c) => c.defaultVisible).map((c) => c.key))
+  )
 
   const filtered = useMemo(() => {
     const base = initialAlerts.filter((a) => {
@@ -158,7 +385,9 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
           a.title.toLowerCase().includes(q) ||
           a.source.toLowerCase().includes(q) ||
           a.sourceIp.toLowerCase().includes(q) ||
-          a.mitreTechnique.toLowerCase().includes(q)
+          a.mitreTechnique.toLowerCase().includes(q) ||
+          a.mitreTactic.toLowerCase().includes(q) ||
+          a.verdict.toLowerCase().includes(q)
         )
       }
       return true
@@ -166,41 +395,66 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
     return sortAlerts(base, sortKey, sortDirection)
   }, [incidentStatusFilter, initialAlerts, searchQuery, severityFilter, sortDirection, sortKey])
 
-  const severityCounts = initialAlerts.reduce(
-    (acc, a) => {
-      acc[a.severity] = (acc[a.severity] || 0) + 1
-      return acc
-    },
-    {} as Record<string, number>
+  const severityCounts = useMemo(
+    () =>
+      initialAlerts.reduce((acc, a) => {
+        acc[a.severity] = (acc[a.severity] || 0) + 1
+        return acc
+      }, {} as Record<string, number>),
+    [initialAlerts]
   )
 
-  function toggleColumn(column: ColumnKey) {
+  const toggleColumn = useCallback((key: ColumnKey) => {
     setVisibleColumns((prev) => {
-      if (prev.includes(column)) {
-        if (prev.length === 1) return prev
-        return prev.filter((c) => c !== column)
+      const next = new Set(prev)
+      if (next.has(key)) {
+        if (next.size === 1) return prev // must keep at least one
+        next.delete(key)
+      } else {
+        next.add(key)
       }
-      return [...prev, column]
+      return next
     })
-  }
+  }, [])
 
   function handleSort(nextKey: SortKey) {
     if (sortKey === nextKey) {
       setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"))
-      return
+    } else {
+      setSortKey(nextKey)
+      setSortDirection(nextKey === "timestamp" || nextKey === "ingestedAt" ? "desc" : "asc")
     }
-    setSortKey(nextKey)
-    setSortDirection(nextKey === "timestamp" ? "desc" : "asc")
   }
 
-  function thClasses(): string {
-    return "text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5 whitespace-nowrap"
+  // Ordered visible columns
+  const orderedVisible = columnOrder.filter((k) => visibleColumns.has(k))
+  const columnMap = useMemo(() => {
+    const m: Record<string, ColumnDef> = {}
+    for (const c of ALL_COLUMNS) m[c.key] = c
+    return m
+  }, [])
+
+  function thClass(col: ColumnDef) {
+    return cn(
+      "text-[11px] font-medium text-muted-foreground text-left px-4 py-2.5 whitespace-nowrap select-none",
+      col.minBreakpoint === "md" && "hidden md:table-cell",
+      col.minBreakpoint === "lg" && "hidden lg:table-cell",
+      col.minBreakpoint === "xl" && "hidden xl:table-cell"
+    )
   }
 
-  const scoreColClass = "px-4 py-3 hidden xl:table-cell"
+  function tdClass(col: ColumnDef) {
+    return cn(
+      "px-4 py-3",
+      col.minBreakpoint === "md" && "hidden md:table-cell",
+      col.minBreakpoint === "lg" && "hidden lg:table-cell",
+      col.minBreakpoint === "xl" && "hidden xl:table-cell"
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Severity filter chips */}
       <div className="flex flex-wrap items-center gap-2">
         {severityFilters.map((f) => {
           const count = f.key === "all" ? initialAlerts.length : severityCounts[f.key] || 0
@@ -222,51 +476,36 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
         })}
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
+      {/* Search + controls bar */}
+      <div className="flex items-center gap-2.5 flex-wrap">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[180px] max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <Input
-            placeholder="Search alerts, IPs, techniques..."
+            placeholder="Search alerts, IPs, tactics..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8 h-8 text-xs bg-card/60 border-border/50 placeholder:text-muted-foreground/40"
           />
-        </div>
-        <div className="relative">
-          <button
-            onClick={() => setColumnsOpen((v) => !v)}
-            className="h-8 px-2.5 rounded-md border border-border/50 bg-card/60 text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1.5"
-          >
-            <Columns3 className="w-3.5 h-3.5" />
-            Columns
-          </button>
-          {columnsOpen && (
-            <div className="absolute right-0 top-9 z-20 w-52 rounded-md border border-border/60 bg-card p-2 shadow-xl">
-              {Object.keys(columnLabels).map((col) => {
-                const key = col as ColumnKey
-                return (
-                  <label key={key} className="flex items-center gap-2 px-1.5 py-1 text-[11px] text-foreground/85">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns.includes(key)}
-                      onChange={() => toggleColumn(key)}
-                      className="accent-foreground"
-                    />
-                    <span>{columnLabels[key]}</span>
-                  </label>
-                )
-              })}
-            </div>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3 h-3" />
+            </button>
           )}
         </div>
-        <div className="flex items-center gap-1 px-2 py-1 rounded-md glass-subtle">
-          <Filter className="w-3 h-3 text-muted-foreground" />
+
+        {/* Incident status filter */}
+        <div className="flex items-center gap-1 px-2 py-1 rounded-md glass-subtle shrink-0">
+          <Filter className="w-3 h-3 text-muted-foreground shrink-0" />
           {incidentStatusFilters.map((s) => (
             <button
               key={s.key}
               onClick={() => setIncidentStatusFilter(s.key)}
               className={cn(
-                "px-2 py-0.5 text-[11px] rounded transition-colors capitalize",
+                "px-2 py-0.5 text-[11px] rounded transition-colors capitalize whitespace-nowrap",
                 incidentStatusFilter === s.key
                   ? "bg-foreground/10 text-foreground"
                   : "text-muted-foreground hover:text-foreground"
@@ -276,83 +515,66 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
             </button>
           ))}
         </div>
+
+        {/* Column manager toggle */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setColumnsOpen((v) => !v)}
+            className={cn(
+              "h-8 px-2.5 rounded-md border text-[11px] flex items-center gap-1.5 transition-colors",
+              columnsOpen
+                ? "border-foreground/30 bg-foreground/10 text-foreground"
+                : "border-border/50 bg-card/60 text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <Columns3 className="w-3.5 h-3.5" />
+            Columns
+            <span className="text-[10px] opacity-50">
+              {visibleColumns.size}/{ALL_COLUMNS.length}
+            </span>
+          </button>
+          {columnsOpen && (
+            <ColumnManager
+              columnOrder={columnOrder}
+              visibleColumns={visibleColumns}
+              onToggle={toggleColumn}
+              onReorder={setColumnOrder}
+              onClose={() => setColumnsOpen(false)}
+            />
+          )}
+        </div>
       </div>
 
+      {/* Table */}
       <div className="glass rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-border/40 bg-muted/20">
-                {visibleColumns.includes("severity") && (
-                  <th className={thClasses()}>
-                    <button onClick={() => handleSort("severity")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      Sev. <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("id") && (
-                  <th className={thClasses()}>
-                    <button onClick={() => handleSort("id")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      ID <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("alert") && (
-                  <th className={thClasses()}>
-                    <button onClick={() => handleSort("title")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      Alert <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("source") && (
-                  <th className={cn(thClasses(), "hidden md:table-cell")}>
-                    <button onClick={() => handleSort("source")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      Source <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("mitreTactic") && (
-                  <th className={cn(thClasses(), "hidden lg:table-cell")}>
-                    <button onClick={() => handleSort("mitreTactic")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      MITRE Tactic <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("verdict") && (
-                  <th className={cn(thClasses(), "hidden md:table-cell")}>
-                    <button onClick={() => handleSort("verdict")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      Verdict <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("incident") && (
-                  <th className={cn(thClasses(), "hidden md:table-cell")}>
-                    <button onClick={() => handleSort("incidentStatus")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      Incident <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("aiScore") && (
-                  <th className={cn(thClasses(), "hidden xl:table-cell")}>
-                    <button onClick={() => handleSort("aiScore")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      AI Score <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("heuristicsScore") && (
-                  <th className={cn(thClasses(), "hidden xl:table-cell")}>
-                    <button onClick={() => handleSort("heuristicsScore")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      Heuristics <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
-                {visibleColumns.includes("times") && (
-                  <th className={thClasses()}>
-                    <button onClick={() => handleSort("timestamp")} className="inline-flex items-center gap-1 hover:text-foreground">
-                      Times <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                )}
+                {orderedVisible.map((key) => {
+                  const col = columnMap[key]
+                  if (!col) return null
+                  const isSorted = col.sortKey === sortKey
+                  return (
+                    <th key={key} className={thClass(col)}>
+                      {col.sortKey ? (
+                        <button
+                          onClick={() => handleSort(col.sortKey!)}
+                          className={cn(
+                            "inline-flex items-center gap-1 hover:text-foreground transition-colors",
+                            isSorted && "text-foreground"
+                          )}
+                        >
+                          {col.label}
+                          <SortIcon colKey={col.sortKey} sortKey={sortKey} direction={sortDirection} />
+                        </button>
+                      ) : (
+                        col.label
+                      )}
+                    </th>
+                  )
+                })}
+                {/* Chevron column */}
                 <th className="w-8" />
               </tr>
             </thead>
@@ -360,84 +582,90 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
               {filtered.map((alert) => (
                 <tr
                   key={alert.id}
-                  className="border-b border-border/20 last:border-0 hover:bg-foreground/[0.02] transition-colors group"
+                  className="border-b border-border/20 last:border-0 hover:bg-foreground/[0.025] transition-colors group cursor-pointer"
+                  onClick={(e) => {
+                    // Don't navigate if clicking a link inside the row
+                    if ((e.target as HTMLElement).closest("a")) return
+                    window.location.href = `/dashboard/alerts/${alert.id}`
+                  }}
                 >
-                  {visibleColumns.includes("severity") && (
-                    <td className="px-4 py-3">
-                      <SeverityBadge severity={alert.severity} />
-                    </td>
-                  )}
-                  {visibleColumns.includes("id") && (
-                    <td className="px-4 py-3">
-                      <span className="text-[11px] font-mono text-muted-foreground">{alert.id}</span>
-                    </td>
-                  )}
-                  {visibleColumns.includes("alert") && (
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/dashboard/alerts/${alert.id}`}
-                        className="text-xs text-foreground/90 hover:text-foreground font-medium transition-colors"
-                      >
-                        {alert.title}
-                      </Link>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 max-w-md truncate">
-                        {alert.description}
-                      </p>
-                    </td>
-                  )}
-                  {visibleColumns.includes("source") && (
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <div className="flex flex-col">
-                        <span className="text-[11px] font-mono text-foreground/70">{alert.source}</span>
-                        <span className="text-[10px] text-muted-foreground font-mono">{alert.sourceIp}</span>
-                      </div>
-                    </td>
-                  )}
-                  {visibleColumns.includes("mitreTactic") && (
-                    <td className="px-4 py-3 hidden lg:table-cell">
-                      <span className="text-[11px] text-muted-foreground">{alert.mitreTactic}</span>
-                    </td>
-                  )}
-                  {visibleColumns.includes("verdict") && (
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <VerdictBadge verdict={alert.verdict} />
-                    </td>
-                  )}
-                  {visibleColumns.includes("incident") && (
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <StatusBadge status={alert.incidentStatus} />
-                    </td>
-                  )}
-                  {visibleColumns.includes("aiScore") && (
-                    <td className={scoreColClass}>
-                      <ScoreRing label="AI" score={alert.enrichment.aiScore} size={44} />
-                    </td>
-                  )}
-                  {visibleColumns.includes("heuristicsScore") && (
-                    <td className={scoreColClass}>
-                      <ScoreRing label="Heur" score={alert.enrichment.heuristicsScore} size={44} />
-                    </td>
-                  )}
-                  {visibleColumns.includes("times") && (
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-[10px] text-muted-foreground/80 tabular-nums whitespace-nowrap">
-                          Alert: {new Date(alert.timestamp).toLocaleTimeString("en-US", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/60 tabular-nums whitespace-nowrap">
-                          Ingested: {new Date(alert.ingestedAt || alert.timestamp).toLocaleTimeString("en-US", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
-                        </span>
-                      </div>
-                    </td>
-                  )}
-                  <td className="px-2 py-3">
-                    <Link href={`/dashboard/alerts/${alert.id}`}>
+                  {orderedVisible.map((key) => {
+                    const col = columnMap[key]
+                    if (!col) return null
+                    return (
+                      <td key={key} className={tdClass(col)}>
+                        {key === "severity" && <SeverityBadge severity={alert.severity} />}
+
+                        {key === "id" && (
+                          <span className="text-[11px] font-mono text-muted-foreground">{alert.id}</span>
+                        )}
+
+                        {key === "alert" && (
+                          <div className="flex flex-col">
+                            <Link
+                              href={`/dashboard/alerts/${alert.id}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs text-foreground/90 hover:text-foreground font-medium transition-colors"
+                            >
+                              {alert.title}
+                            </Link>
+                            <p className="text-[11px] text-muted-foreground mt-0.5 max-w-md truncate">
+                              {alert.description}
+                            </p>
+                          </div>
+                        )}
+
+                        {key === "source" && (
+                          <div className="flex flex-col">
+                            <span className="text-[11px] font-mono text-foreground/70">{alert.source}</span>
+                            <span className="text-[10px] text-muted-foreground font-mono">{alert.sourceIp}</span>
+                          </div>
+                        )}
+
+                        {key === "mitreTactic" && (
+                          <span className="text-[11px] text-muted-foreground">{alert.mitreTactic}</span>
+                        )}
+
+                        {key === "verdict" && <VerdictBadge verdict={alert.verdict} />}
+
+                        {key === "incident" && <StatusBadge status={alert.incidentStatus} />}
+
+                        {key === "aiScore" && (
+                          <ScoreRing label="AI" score={alert.enrichment.aiScore} size={44} />
+                        )}
+
+                        {key === "heuristicsScore" && (
+                          <ScoreRing label="Heur" score={alert.enrichment.heuristicsScore} size={44} />
+                        )}
+
+                        {key === "alertTime" && (
+                          <TimeCell
+                            ts={alert.timestamp}
+                            label="Event"
+                          />
+                        )}
+
+                        {key === "ingestedAt" && (
+                          <TimeCell
+                            ts={alert.ingestedAt || alert.timestamp}
+                            label="Ingested"
+                            dimmed
+                          />
+                        )}
+
+                        {key === "lastAnalyzed" && (
+                          <TimeCell
+                            ts={alert.lastAnalyzedAt}
+                            label="Analyzed"
+                            dimmed
+                            fallback="—"
+                          />
+                        )}
+                      </td>
+                    )
+                  })}
+                  <td className="px-2 py-3 w-8">
+                    <Link href={`/dashboard/alerts/${alert.id}`} onClick={(e) => e.stopPropagation()}>
                       <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-foreground/60 transition-colors" />
                     </Link>
                   </td>
@@ -445,8 +673,19 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={Math.max(2, visibleColumns.length + 1)} className="px-4 py-12 text-center">
+                  <td
+                    colSpan={orderedVisible.length + 1}
+                    className="px-4 py-12 text-center"
+                  >
                     <p className="text-sm text-muted-foreground">No alerts match your filters</p>
+                    {searchQuery && (
+                      <button
+                        onClick={() => setSearchQuery("")}
+                        className="mt-2 text-xs text-muted-foreground/60 hover:text-muted-foreground underline"
+                      >
+                        Clear search
+                      </button>
+                    )}
                   </td>
                 </tr>
               )}
@@ -455,10 +694,22 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
         </div>
       </div>
 
+      {/* Footer */}
       <div className="flex items-center justify-between">
         <p className="text-[11px] text-muted-foreground">
-          Showing {filtered.length} of {initialAlerts.length} alerts
+          {filtered.length === initialAlerts.length
+            ? `${initialAlerts.length} alert${initialAlerts.length !== 1 ? "s" : ""}`
+            : `${filtered.length} of ${initialAlerts.length} alerts`}
         </p>
+        {sortKey !== "timestamp" && (
+          <button
+            onClick={() => { setSortKey("timestamp"); setSortDirection("desc") }}
+            className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground flex items-center gap-1"
+          >
+            <X className="w-2.5 h-2.5" />
+            Clear sort
+          </button>
+        )}
       </div>
     </div>
   )

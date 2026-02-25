@@ -244,6 +244,22 @@ export async function toggleYaraRuleAction(
   return { success: true }
 }
 
+// YARA details action
+export async function getYaraDetailsAction(
+  alertId: string
+): Promise<{ success: boolean; rules?: import("@/lib/yara").YaraRuleResult[]; error?: string }> {
+  try {
+    const { getAlertById } = await import("@/lib/db/alerts")
+    const { scanAllRules } = await import("@/lib/yara")
+    const alert = await getAlertById(alertId)
+    if (!alert) return { success: false, error: "Alert not found" }
+    const rules = await scanAllRules(alert.rawLog)
+    return { success: true, rules }
+  } catch (e) {
+    return { success: false, error: String(e) }
+  }
+}
+
 // Enrichment action (trigger LLM enrichment)
 export async function triggerEnrichmentAction(
   alertId: string

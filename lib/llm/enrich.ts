@@ -166,6 +166,7 @@ export async function enrichAlertWithLLM(alertId: string): Promise<void> {
     autoStatusConfidenceThreshold?: number
     verdictMaliciousThreshold?: number
     verdictSuspiciousThreshold?: number
+    fpAutoResolveThreshold?: number
   }>("llm", {
     provider: "openai",
     model: "gpt-4.1-nano",
@@ -173,6 +174,7 @@ export async function enrichAlertWithLLM(alertId: string): Promise<void> {
     autoStatusConfidenceThreshold: 90,
     verdictMaliciousThreshold: 80,
     verdictSuspiciousThreshold: 45,
+    fpAutoResolveThreshold: 30,
   })
 
   const indicators = extractIndicators([alert.title, alert.description, alert.rawLog].join("\n"))
@@ -292,16 +294,19 @@ ${sharedContext}`,
     llmModel: settings.model || "gpt-4.1-nano",
   })
 
-  const autoStatusThreshold = settings.autoStatusConfidenceThreshold ?? 90
   const maliciousThreshold = Math.max(1, Math.min(100, settings.verdictMaliciousThreshold ?? 80))
   const suspiciousThreshold = Math.max(1, Math.min(maliciousThreshold - 1, settings.verdictSuspiciousThreshold ?? 45))
+  const fpAutoResolveThreshold = Math.max(0, Math.min(suspiciousThreshold - 1, settings.fpAutoResolveThreshold ?? 30))
+
   const verdict: AlertVerdict =
     avgAiScore >= maliciousThreshold ? "malicious" : avgAiScore >= suspiciousThreshold ? "suspicious" : "false_positive"
   await updateAlertVerdict(alertId, verdict)
   await updateAlertSeverity(alertId, recategorizedSeverity)
 
-  if (alert.incidentStatus === "unassigned" && avgAiScore >= autoStatusThreshold) {
-    await updateAlertIncidentStatus(alertId, "in_progress")
+  // Auto-resolve unassigned alerts that AI classifies as false positive with high assurance (low score)
+  if (verdict === "false_positive" && avgAiScore <= fpAutoResolveThreshold && alert.incidentStatus === "unassigned") {
+    await updateAlertIncidentStatus(alertId, "resolved")
+    systemLog("info", "llm", "Auto-resolved alert as false positive", { alertId, avgAiScore, fpAutoResolveThreshold })
   }
 
   systemLog("info", "llm", "LLM enrichment completed", { alertId, avgAiScore, verdict })

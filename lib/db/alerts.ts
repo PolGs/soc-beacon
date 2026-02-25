@@ -44,6 +44,7 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
         asnInfo: (enrichRow.asn_info as string) || null,
         parseConfidence: typeof enrichRow.parse_confidence === "number" ? (enrichRow.parse_confidence as number) : undefined,
         sigma: enrichRow.sigma_match ? JSON.parse(enrichRow.sigma_match as string) : null,
+        threatIntelVendors: enrichRow.threat_intel_vendors ? JSON.parse(enrichRow.threat_intel_vendors as string) : undefined,
       }
     : {
         aiAnalysis: "",
@@ -64,6 +65,7 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
     id: row.id as string,
     timestamp: row.timestamp as string,
     ingestedAt: normalizeSqliteTimestamp(row.created_at as string | undefined),
+    lastAnalyzedAt: row.enriched_at ? normalizeSqliteTimestamp(row.enriched_at as string) : undefined,
     source: row.source as string,
     sourceIp: row.source_ip as string,
     destIp: row.dest_ip as string,
@@ -100,7 +102,7 @@ export async function getAlerts(filters?: {
   offset?: number
 }): Promise<Alert[]> {
   const db = await getDb()
-  let sql = `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence
+  let sql = `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence, e.enriched_at, e.threat_intel_vendors
     FROM alerts a LEFT JOIN alert_enrichments e ON a.id = e.alert_id WHERE 1=1`
   const params: unknown[] = []
 
@@ -139,7 +141,7 @@ export async function getAlertById(id: string): Promise<Alert | null> {
   const db = await getDb()
   const rows = stmtToObjects(
     db,
-    `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence
+    `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence, e.enriched_at, e.threat_intel_vendors
      FROM alerts a LEFT JOIN alert_enrichments e ON a.id = e.alert_id WHERE a.id = ?`,
     [id]
   )
@@ -186,6 +188,33 @@ export async function updateAlertVerdict(id: string, verdict: AlertVerdict): Pro
 export async function updateAlertSeverity(id: string, severity: Severity): Promise<void> {
   const db = await getDb()
   db.run("UPDATE alerts SET severity = ?, updated_at = datetime('now') WHERE id = ?", [severity, id])
+  persistDb()
+}
+
+export async function updateAlertFields(
+  id: string,
+  data: Partial<{
+    severity: Severity
+    yaraMatch: string | null
+    mitreTactic: string
+    mitreTechnique: string
+    title: string
+    description: string
+  }>
+): Promise<void> {
+  const db = await getDb()
+  const updates: string[] = []
+  const params: unknown[] = []
+  if (data.severity !== undefined) { updates.push("severity = ?"); params.push(data.severity) }
+  if (data.yaraMatch !== undefined) { updates.push("yara_match = ?"); params.push(data.yaraMatch) }
+  if (data.mitreTactic !== undefined) { updates.push("mitre_tactic = ?"); params.push(data.mitreTactic) }
+  if (data.mitreTechnique !== undefined) { updates.push("mitre_technique = ?"); params.push(data.mitreTechnique) }
+  if (data.title !== undefined) { updates.push("title = ?"); params.push(data.title) }
+  if (data.description !== undefined) { updates.push("description = ?"); params.push(data.description) }
+  if (updates.length === 0) return
+  updates.push("updated_at = datetime('now')")
+  params.push(id)
+  db.run(`UPDATE alerts SET ${updates.join(", ")} WHERE id = ?`, params)
   persistDb()
 }
 

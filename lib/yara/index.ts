@@ -110,3 +110,19 @@ export async function scanLogMessage(message: string): Promise<string | null> {
   const result = await scanWithYara(message)
   return result ? result.ruleName : null
 }
+
+export interface YaraRuleResult {
+  name: string
+  matched: boolean
+  matchedStrings: string[]
+}
+
+export async function scanAllRules(content: string): Promise<YaraRuleResult[]> {
+  const rules = await getYaraRules(true)
+  return rules.map((rule) => {
+    const patterns = parseYaraRuleStrings(rule.content)
+    if (patterns.length === 0) return { name: rule.name, matched: false, matchedStrings: [] }
+    const matched = matchPatterns(content, patterns)
+    return { name: rule.name, matched: matched.length > 0, matchedStrings: matched }
+  })
+}

@@ -243,6 +243,10 @@ function migrateSchema(database: Database) {
   if (!tableHasColumn(database, "alert_enrichments", "parse_confidence")) {
     database.run("ALTER TABLE alert_enrichments ADD COLUMN parse_confidence REAL")
   }
+
+  if (!tableHasColumn(database, "alert_enrichments", "threat_intel_vendors")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN threat_intel_vendors TEXT")
+  }
 }
 
 function seedDatabase(database: Database) {

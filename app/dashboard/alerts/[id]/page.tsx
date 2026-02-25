@@ -3,6 +3,8 @@ import { notFound } from "next/navigation"
 import { AlertDetail } from "@/components/alert-detail"
 import Link from "next/link"
 import { ChevronLeft } from "lucide-react"
+import { getSetting } from "@/lib/db/settings"
+import { getThreatFeeds } from "@/lib/db/threat-feeds"
 
 export const dynamic = "force-dynamic"
 
@@ -15,6 +17,25 @@ export default async function AlertDetailPage({
   const alert = await getAlertById(id)
   if (!alert) notFound()
 
+  const [llmSettings, sigmaSettings, yaraSettings, threatFeeds] = await Promise.all([
+    getSetting<{ provider?: string; apiKey?: string; model?: string; analysisAgents?: number }>("llm", {}),
+    getSetting<{ enabled?: boolean }>("sigma", {}),
+    getSetting<{ enabled?: boolean }>("yara", {}),
+    getThreatFeeds(),
+  ])
+
+  const activeThreatFeeds = threatFeeds.filter((f) => f.enabled).length
+
+  const pipelineSettings = {
+    sigmaEnabled: !!sigmaSettings?.enabled,
+    yaraEnabled: !!yaraSettings?.enabled,
+    llmConfigured: !!(llmSettings?.apiKey && llmSettings?.provider && llmSettings.provider !== "local"),
+    llmProvider: llmSettings?.provider || "none",
+    llmModel: llmSettings?.model || "",
+    analysisAgents: llmSettings?.analysisAgents || 3,
+    activeThreatFeeds,
+  }
+
   return (
     <div className="p-6 flex flex-col gap-6">
       <div className="flex items-center gap-3">
@@ -26,7 +47,7 @@ export default async function AlertDetailPage({
           Back to Alerts
         </Link>
       </div>
-      <AlertDetail alert={alert} />
+      <AlertDetail alert={alert} pipelineSettings={pipelineSettings} />
     </div>
   )
 }

@@ -27,6 +27,16 @@ export interface SigmaMatch {
   source?: string
 }
 
+export interface ThreatIntelVendorResult {
+  vendor: string
+  indicator: string
+  indicatorType: "ip" | "domain" | "url" | "hash"
+  hit: boolean
+  clean: boolean
+  result: string
+  error?: boolean
+}
+
 export interface AlertEnrichment {
   aiAnalysis: string
   iocType: string
@@ -40,12 +50,14 @@ export interface AlertEnrichment {
   asnInfo: string | null
   parseConfidence?: number
   sigma?: SigmaMatch | null
+  threatIntelVendors?: ThreatIntelVendorResult[]
 }
 
 export interface Alert {
   id: string
   timestamp: string
   ingestedAt: string
+  lastAnalyzedAt?: string
   source: string
   sourceIp: string
   destIp: string

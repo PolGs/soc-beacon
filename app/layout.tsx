@@ -10,6 +10,10 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-jet
 export const metadata: Metadata = {
   title: 'SOC Beacon',
   description: 'AI-powered log enrichment and threat analysis platform',
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+  },
 }
 
 export const viewport: Viewport = {

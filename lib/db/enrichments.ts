@@ -1,5 +1,5 @@
 import { getDb, persistDb } from "./index"
-import type { AlertEnrichment, SigmaMatch } from "../types"
+import type { AlertEnrichment, SigmaMatch, ThreatIntelVendorResult } from "../types"
 
 function stmtToObjects(db: Awaited<ReturnType<typeof getDb>>, sql: string, params: unknown[] = []): Record<string, unknown>[] {
   const stmt = db.prepare(sql)
@@ -33,6 +33,7 @@ export async function getEnrichment(alertId: string): Promise<AlertEnrichment | 
     asnInfo: (r.asn_info as string) || null,
     parseConfidence: typeof r.parse_confidence === "number" ? (r.parse_confidence as number) : undefined,
     sigma: r.sigma_match ? JSON.parse(r.sigma_match as string) : null,
+    threatIntelVendors: r.threat_intel_vendors ? JSON.parse(r.threat_intel_vendors as string) : undefined,
   }
 }
 
@@ -54,6 +55,7 @@ export async function upsertEnrichment(
     parseConfidence: number
     llmProvider: string
     llmModel: string
+    threatIntelVendors: ThreatIntelVendorResult[]
   }>
 ): Promise<void> {
   const db = await getDb()
@@ -77,6 +79,7 @@ export async function upsertEnrichment(
     if (data.parseConfidence !== undefined) { updates.push("parse_confidence = ?"); params.push(data.parseConfidence) }
     if (data.llmProvider !== undefined) { updates.push("llm_provider = ?"); params.push(data.llmProvider) }
     if (data.llmModel !== undefined) { updates.push("llm_model = ?"); params.push(data.llmModel) }
+    if (data.threatIntelVendors !== undefined) { updates.push("threat_intel_vendors = ?"); params.push(JSON.stringify(data.threatIntelVendors)) }
     updates.push("enriched_at = datetime('now')")
 
     if (updates.length > 1) {
@@ -85,8 +88,8 @@ export async function upsertEnrichment(
     }
   } else {
     db.run(
-      `INSERT INTO alert_enrichments (alert_id, ai_analysis, ioc_type, threat_intel, recommendation, confidence, ai_score, heuristics_score, related_cves, geo_country, geo_city, asn_info, sigma_match, parse_confidence, llm_provider, llm_model)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO alert_enrichments (alert_id, ai_analysis, ioc_type, threat_intel, recommendation, confidence, ai_score, heuristics_score, related_cves, geo_country, geo_city, asn_info, sigma_match, parse_confidence, llm_provider, llm_model, threat_intel_vendors)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         alertId,
         data.aiAnalysis || null,
@@ -104,6 +107,7 @@ export async function upsertEnrichment(
         data.parseConfidence ?? null,
         data.llmProvider || null,
         data.llmModel || null,
+        data.threatIntelVendors ? JSON.stringify(data.threatIntelVendors) : null,
       ]
     )
   }
