@@ -6,11 +6,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { toast } from "sonner"
 import {
   saveSettingsAction,
   changePasswordAction,
+  createAnalystUserAction,
+  listUsersAction,
   getSigmaStatusAction,
   syncSigmaRulesAction,
   addThreatFeedAction,
@@ -19,7 +22,7 @@ import {
   toggleYaraRuleAction,
   updateThreatFeedApiKeyAction,
 } from "@/app/actions"
-import type { ThreatFeed, YaraRule } from "@/lib/types"
+import type { LLMAgentConfig, ThreatFeed, YaraRule, UserAccount } from "@/lib/types"
 import {
   Radio,
   Key,
@@ -129,13 +132,111 @@ function generateApiKey(): string {
   return `sk-beacon-${base64}`
 }
 
+function InfoHint({ text }: { text: string }) {
+  return (
+    <span title={text} className="inline-flex">
+      <HelpCircle className="w-3.5 h-3.5 text-muted-foreground/70" />
+    </span>
+  )
+}
+
+const DEFAULT_LLM_AGENTS: LLMAgentConfig[] = [
+  {
+    id: "triage",
+    name: "Incident Triage Expert",
+    description: "Scores risk and explains likely attacker objective.",
+    enabled: true,
+    model: "gpt-4.1-nano",
+    prompt: "Explain what happened, probable attacker objective, and assign AI score.",
+    maxTokens: 700,
+    temperature: 0.1,
+  },
+  {
+    id: "ioc_detection",
+    name: "IOC and Detection Expert",
+    description: "Validates indicators and detection quality, highlights likely false positives.",
+    enabled: true,
+    model: "gpt-4.1-nano",
+    prompt: "Validate IOC type quality, tune MITRE mapping, and note likely false positives.",
+    maxTokens: 700,
+    temperature: 0.1,
+  },
+  {
+    id: "threat_intel",
+    name: "Threat Intelligence Correlation Expert",
+    description: "Correlates event context with threat intel history and active compromise risk.",
+    enabled: true,
+    model: "gpt-4.1-nano",
+    prompt: "Correlate event against threat intel and assess probability of active compromise.",
+    maxTokens: 700,
+    temperature: 0.1,
+  },
+  {
+    id: "response",
+    name: "Incident Response Lead",
+    description: "Creates prioritized containment and investigation actions.",
+    enabled: true,
+    model: "gpt-4.1-nano",
+    prompt: "Produce concise prioritized containment and investigation steps.",
+    maxTokens: 700,
+    temperature: 0.1,
+  },
+  {
+    id: "summary_header",
+    name: "Alert Header Summary Agent",
+    description: "Generates a strict max-30-word alert summary for header display.",
+    enabled: true,
+    model: "gpt-4.1-nano",
+    prompt: "Summarize this alert in one sentence, maximum 30 words, technical and actionable, no markdown.",
+    maxTokens: 120,
+    temperature: 0.1,
+  },
+]
+
+function normalizeLlMAgents(raw: unknown, defaults: { model: string; maxTokens: number; temperature: number }): LLMAgentConfig[] {
+  if (!Array.isArray(raw)) {
+    return DEFAULT_LLM_AGENTS.map((a) => ({ ...a, model: defaults.model, maxTokens: defaults.maxTokens, temperature: defaults.temperature }))
+  }
+  const normalized = raw
+    .filter((v) => !!v && typeof v === "object")
+    .map((v, idx) => {
+      const row = v as Record<string, unknown>
+      return {
+        id: String(row.id || `agent_${idx + 1}`),
+        name: String(row.name || `Agent ${idx + 1}`),
+        description: String(row.description || ""),
+        enabled: row.enabled !== false,
+        model: String(row.model || defaults.model || "gpt-4.1-nano"),
+        prompt: String(row.prompt || ""),
+        maxTokens: Number(row.maxTokens ?? defaults.maxTokens) || defaults.maxTokens,
+        temperature: Number(row.temperature ?? defaults.temperature) || defaults.temperature,
+      } satisfies LLMAgentConfig
+    })
+    .filter((a) => a.prompt.trim().length > 0)
+  const merged = normalized.length > 0 ? [...normalized] : []
+  const existingIds = new Set(merged.map((a) => a.id))
+  for (const base of DEFAULT_LLM_AGENTS) {
+    if (existingIds.has(base.id)) continue
+    merged.push({
+      ...base,
+      model: defaults.model || base.model,
+      maxTokens: defaults.maxTokens || base.maxTokens,
+      temperature: defaults.temperature || base.temperature,
+    })
+  }
+  return merged.length > 0 ? merged : DEFAULT_LLM_AGENTS
+}
+
 interface SettingsViewProps {
   initialSettings: Record<string, unknown>
   initialFeeds: ThreatFeed[]
   initialYaraRules: YaraRule[]
+  initialUsers: UserAccount[]
+  currentUser: string
+  currentRole: "admin" | "analyst"
 }
 
-export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }: SettingsViewProps) {
+export function SettingsView({ initialSettings, initialFeeds, initialYaraRules, initialUsers, currentUser, currentRole }: SettingsViewProps) {
   const general = (initialSettings.general || {}) as Record<string, unknown>
   const syslog = (initialSettings.syslog || {}) as Record<string, unknown>
   const api = (initialSettings.api || {}) as Record<string, unknown>
@@ -171,6 +272,19 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
   const [autoStatusThreshold, setAutoStatusThreshold] = useState(String(llm.autoStatusConfidenceThreshold || 90))
   const [verdictMaliciousThreshold, setVerdictMaliciousThreshold] = useState(String(llm.verdictMaliciousThreshold || 80))
   const [verdictSuspiciousThreshold, setVerdictSuspiciousThreshold] = useState(String(llm.verdictSuspiciousThreshold || 45))
+  const [fpAutoResolveThreshold, setFpAutoResolveThreshold] = useState(String(llm.fpAutoResolveThreshold || 30))
+  const [neverAutoResolveLowEvidence, setNeverAutoResolveLowEvidence] = useState(llm.neverAutoResolveLowEvidence !== false)
+  const [minAutoResolveEvidence, setMinAutoResolveEvidence] = useState(String(llm.minAutoResolveEvidence || 55))
+  const [sourceThresholdsJson, setSourceThresholdsJson] = useState(
+    JSON.stringify((llm.sourceThresholds as Record<string, unknown>) || {}, null, 2)
+  )
+  const [llmAgents, setLlmAgents] = useState<LLMAgentConfig[]>(
+    normalizeLlMAgents(llm.agents, {
+      model: (llm.model as string) || "gpt-4.1-nano",
+      maxTokens: Number(llm.maxTokens || 700),
+      temperature: Number(llm.temperature || 0.1),
+    })
+  )
 
   // YARA Rules
   const [yaraEnabled, setYaraEnabled] = useState(yara.enabled !== false)
@@ -200,6 +314,10 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
   const [currentPassword, setCurrentPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [users, setUsers] = useState<UserAccount[]>(initialUsers)
+  const [newUsername, setNewUsername] = useState("")
+  const [newUserPassword, setNewUserPassword] = useState("")
+  const isAdmin = currentRole === "admin"
 
   // Loading states
   const [saving, setSaving] = useState<string | null>(null)
@@ -274,6 +392,78 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
     } else {
       toast.error(result.error || "Failed to update password")
     }
+    setSaving(null)
+  }
+
+  const updateAgent = (index: number, patch: Partial<LLMAgentConfig>) => {
+    setLlmAgents((prev) => prev.map((agent, i) => (i === index ? { ...agent, ...patch } : agent)))
+  }
+
+  const handleSaveLlm = async () => {
+    let parsedSourceThresholds: Record<string, unknown> = {}
+    try {
+      parsedSourceThresholds = sourceThresholdsJson.trim() ? JSON.parse(sourceThresholdsJson) : {}
+    } catch {
+      toast.error("Source thresholds must be valid JSON")
+      return
+    }
+
+    await handleSave("llm", {
+      provider: llmProvider,
+      apiKey: llmApiKey,
+      model: llmModel,
+      endpoint: llmEndpoint,
+      maxTokens: parseInt(llmMaxTokens) || 700,
+      temperature: parseFloat(llmTemperature) || 0.1,
+      autoEnrich,
+      analysisAgents: Math.max(1, Math.min(4, parseInt(analysisAgents) || 3)),
+      autoStatusConfidenceThreshold: Math.max(1, Math.min(100, parseInt(autoStatusThreshold) || 90)),
+      verdictMaliciousThreshold: Math.max(1, Math.min(100, parseInt(verdictMaliciousThreshold) || 80)),
+      verdictSuspiciousThreshold: Math.max(1, Math.min(99, parseInt(verdictSuspiciousThreshold) || 45)),
+      fpAutoResolveThreshold: Math.max(0, Math.min(100, parseInt(fpAutoResolveThreshold) || 30)),
+      neverAutoResolveLowEvidence,
+      minAutoResolveEvidence: Math.max(0, Math.min(100, parseInt(minAutoResolveEvidence) || 55)),
+      agents: llmAgents.map((agent, index) => ({
+        id: String(agent.id || `agent_${index + 1}`),
+        name: String(agent.name || `Agent ${index + 1}`),
+        description: String(agent.description || ""),
+        enabled: agent.enabled !== false,
+        model: String(agent.model || llmModel || "gpt-4.1-nano"),
+        prompt: String(agent.prompt || "").trim(),
+        maxTokens: Math.max(64, Math.min(4096, Number(agent.maxTokens || llmMaxTokens || 700))),
+        temperature: Math.max(0, Math.min(2, Number(agent.temperature ?? llmTemperature ?? 0.1))),
+      })),
+      sourceThresholds: parsedSourceThresholds,
+    })
+  }
+
+  const handleCreateAnalyst = async () => {
+    if (!isAdmin) {
+      toast.error("Only admin can create users")
+      return
+    }
+    if (!newUsername.trim()) {
+      toast.error("Username is required")
+      return
+    }
+    if (newUserPassword.length < 8) {
+      toast.error("Password must be at least 8 characters")
+      return
+    }
+    setSaving("create-user")
+    const result = await createAnalystUserAction(newUsername, newUserPassword)
+    if (!result.success) {
+      toast.error(result.error || "Failed to create user")
+      setSaving(null)
+      return
+    }
+    const refreshed = await listUsersAction()
+    if (refreshed.success && refreshed.users) {
+      setUsers(refreshed.users)
+    }
+    setNewUsername("")
+    setNewUserPassword("")
+    toast.success("Analyst user created")
     setSaving(null)
   }
 
@@ -478,42 +668,66 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">API Key</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                API Key <InfoHint text="Provider API key used by all AI agents." />
+              </Label>
               <PasswordInput id="llmApiKey" value={llmApiKey} onChange={setLlmApiKey} placeholder="sk-..." />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Model</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                Default Model <InfoHint text="Fallback model used when an agent-specific model is empty." />
+              </Label>
               <Input value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="gpt-4.1-nano" className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-8 gap-4">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">API Endpoint</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                API Endpoint <InfoHint text="OpenAI endpoint. Keep default unless using a compatible proxy." />
+              </Label>
               <Input value={llmEndpoint} onChange={(e) => setLlmEndpoint(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Max Tokens</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                Max Tokens <InfoHint text="Default response length limit for agents." />
+              </Label>
               <Input type="number" value={llmMaxTokens} onChange={(e) => setLlmMaxTokens(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Temperature</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                Temperature <InfoHint text="Lower values produce more deterministic security analysis output." />
+              </Label>
               <Input type="number" step="0.1" min="0" max="2" value={llmTemperature} onChange={(e) => setLlmTemperature(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Agent Calls / Alert</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                Agent Calls / Alert <InfoHint text="Maximum number of enabled agents to execute per alert." />
+              </Label>
               <Input type="number" min="1" max="4" value={analysisAgents} onChange={(e) => setAnalysisAgents(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Auto Incident Threshold (%)</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                Auto Incident Threshold (%) <InfoHint text="Reserved threshold for status automation rules." />
+              </Label>
               <Input type="number" min="1" max="100" value={autoStatusThreshold} onChange={(e) => setAutoStatusThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Malicious Threshold (%)</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                Malicious Threshold (%) <InfoHint text="AI score at or above this value sets verdict to malicious." />
+              </Label>
               <Input type="number" min="1" max="100" value={verdictMaliciousThreshold} onChange={(e) => setVerdictMaliciousThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[11px] text-muted-foreground">Suspicious Threshold (%)</Label>
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                Suspicious Threshold (%) <InfoHint text="AI score range between suspicious and malicious thresholds." />
+              </Label>
               <Input type="number" min="1" max="99" value={verdictSuspiciousThreshold} onChange={(e) => setVerdictSuspiciousThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                FP Auto-Resolve Score Max <InfoHint text="Only very low-score false positives are auto-resolved." />
+              </Label>
+              <Input type="number" min="0" max="100" value={fpAutoResolveThreshold} onChange={(e) => setFpAutoResolveThreshold(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
             </div>
           </div>
           <div className="flex items-center justify-between py-1">
@@ -523,34 +737,123 @@ export function SettingsView({ initialSettings, initialFeeds, initialYaraRules }
             </div>
             <Switch checked={autoEnrich} onCheckedChange={setAutoEnrich} />
           </div>
-          <div className="bg-background/40 rounded-md p-3 border border-border/20">
+          <div className="bg-background/40 rounded-md p-3 border border-border/20 space-y-3">
             <div className="flex items-center justify-between text-[11px]">
-              <span className="text-muted-foreground">System Prompt Preview</span>
+              <span className="text-muted-foreground">AI Agent Profiles</span>
+              <span className="text-muted-foreground/80">Each agent can have its own model and prompt.</span>
             </div>
-            <pre className="mt-2 text-[11px] font-mono text-foreground/50 leading-relaxed whitespace-pre-wrap">
-{`Multi-agent enrichment (up to 4 low-cost calls):
-1) Incident triage scoring
-2) IOC/detection quality review
-3) Threat-intel correlation (IP/URL/domain/hash)
-4) SOC response plan
-
-Model default: gpt-4.1-nano`}
-            </pre>
+            <div className="space-y-3">
+              {llmAgents.map((agent, idx) => (
+                <div key={agent.id || idx} className="rounded-md border border-border/25 bg-card/40 p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-foreground">Agent {idx + 1}</span>
+                      <span className="text-[11px] text-muted-foreground">{agent.id}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground">Enabled</span>
+                      <Switch checked={agent.enabled !== false} onCheckedChange={(checked) => updateAgent(idx, { enabled: checked })} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        Name <InfoHint text="Analyst-facing label for this agent." />
+                      </Label>
+                      <Input
+                        value={agent.name}
+                        onChange={(e) => updateAgent(idx, { name: e.target.value })}
+                        className="bg-background/60 border-border/50 h-8 text-xs focus:border-foreground/30"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        Model <InfoHint text="OpenAI model used by this specific agent." />
+                      </Label>
+                      <Input
+                        value={agent.model}
+                        onChange={(e) => updateAgent(idx, { model: e.target.value })}
+                        className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      Purpose <InfoHint text="What this agent is expected to optimize for." />
+                    </Label>
+                    <Input
+                      value={agent.description || ""}
+                      onChange={(e) => updateAgent(idx, { description: e.target.value })}
+                      className="bg-background/60 border-border/50 h-8 text-xs focus:border-foreground/30"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                      Prompt <InfoHint text="Core instructions injected for this agent on every alert." />
+                    </Label>
+                    <Textarea
+                      value={agent.prompt}
+                      onChange={(e) => updateAgent(idx, { prompt: e.target.value })}
+                      className="min-h-20 text-xs bg-background/60 border-border/50 focus:border-foreground/30"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        Max Tokens <InfoHint text="Response budget only for this agent call." />
+                      </Label>
+                      <Input
+                        type="number"
+                        min="64"
+                        max="4096"
+                        value={String(agent.maxTokens ?? llmMaxTokens)}
+                        onChange={(e) => updateAgent(idx, { maxTokens: Number(e.target.value) || 700 })}
+                        className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      <Label className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        Temperature <InfoHint text="Creativity randomness for this agent (0 to 2)." />
+                      </Label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="2"
+                        value={String(agent.temperature ?? llmTemperature)}
+                        onChange={(e) => updateAgent(idx, { temperature: Number(e.target.value) || 0.1 })}
+                        className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center justify-between py-1">
+              <div>
+                <span className="text-xs text-foreground">Never Auto-Resolve on Low Evidence</span>
+                <p className="text-[11px] text-muted-foreground">Blocks auto-resolve if evidence score is below threshold</p>
+              </div>
+              <Switch checked={neverAutoResolveLowEvidence} onCheckedChange={setNeverAutoResolveLowEvidence} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-[11px] text-muted-foreground">Min Evidence for Auto-Resolve (%)</Label>
+              <Input type="number" min="0" max="100" value={minAutoResolveEvidence} onChange={(e) => setMinAutoResolveEvidence(e.target.value)} className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30" />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-[11px] text-muted-foreground">Source-Specific Threshold Overrides (JSON)</Label>
+            <Textarea
+              value={sourceThresholdsJson}
+              onChange={(e) => setSourceThresholdsJson(e.target.value)}
+              className="min-h-32 text-xs font-mono bg-background/60 border-border/50 focus:border-foreground/30"
+              placeholder={`{\n  "firewall-01": { "maliciousThreshold": 85, "suspiciousThreshold": 50 },\n  "*": { "fpAutoResolveThreshold": 25, "minAutoResolveEvidence": 60 }\n}`}
+            />
           </div>
           <div className="flex justify-end">
-            <SaveButton section="LLM" onClick={() => handleSave("llm", {
-              provider: llmProvider,
-              apiKey: llmApiKey,
-              model: llmModel,
-              endpoint: llmEndpoint,
-              maxTokens: parseInt(llmMaxTokens) || 700,
-              temperature: parseFloat(llmTemperature) || 0.1,
-              autoEnrich,
-              analysisAgents: Math.max(1, Math.min(4, parseInt(analysisAgents) || 3)),
-              autoStatusConfidenceThreshold: Math.max(1, Math.min(100, parseInt(autoStatusThreshold) || 90)),
-              verdictMaliciousThreshold: Math.max(1, Math.min(100, parseInt(verdictMaliciousThreshold) || 80)),
-              verdictSuspiciousThreshold: Math.max(1, Math.min(99, parseInt(verdictSuspiciousThreshold) || 45)),
-            })} />
+            <SaveButton section="LLM" onClick={handleSaveLlm} />
           </div>
         </SectionCard>
       </TabsContent>
@@ -793,7 +1096,7 @@ Model default: gpt-4.1-nano`}
                   <User className="w-3.5 h-3.5 text-foreground/60" />
                 </div>
                 <div className="flex flex-col gap-0.5">
-                  <span className="text-xs text-foreground/80">admin</span>
+                  <span className="text-xs text-foreground/80">{currentUser}</span>
                   <span className="text-[10px] text-muted-foreground">Current session</span>
                 </div>
               </div>
@@ -806,6 +1109,61 @@ Model default: gpt-4.1-nano`}
           <p className="text-[11px] text-muted-foreground/60">
             Sessions expire after 7 days of inactivity. Changing your password will invalidate all other sessions.
           </p>
+        </SectionCard>
+
+        <SectionCard title="User Management" description="Create analyst users for multi-user SOC operations" icon={User}>
+          {isAdmin ? (
+            <>
+              <div className="bg-background/40 rounded-md border border-border/20 divide-y divide-border/20">
+                {users.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between px-3 py-2.5">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs text-foreground/80">{u.username}</span>
+                      <span className="text-[10px] text-muted-foreground">{u.role}</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground/60">
+                      {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-[11px] text-muted-foreground">Username</Label>
+                  <Input
+                    value={newUsername}
+                    onChange={(e) => setNewUsername(e.target.value)}
+                    placeholder="analyst.jdoe"
+                    className="bg-background/60 border-border/50 h-8 text-xs font-mono focus:border-foreground/30"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-[11px] text-muted-foreground">Temporary Password</Label>
+                  <PasswordInput
+                    id="newAnalystPassword"
+                    value={newUserPassword}
+                    onChange={setNewUserPassword}
+                    placeholder="Minimum 8 chars"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs bg-foreground text-background hover:bg-foreground/90"
+                    onClick={handleCreateAnalyst}
+                    disabled={saving === "create-user"}
+                  >
+                    {saving === "create-user" ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
+                    Create Analyst
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="text-[11px] text-muted-foreground/60">
+              User creation is restricted to the admin account.
+            </p>
+          )}
         </SectionCard>
       </TabsContent>
 

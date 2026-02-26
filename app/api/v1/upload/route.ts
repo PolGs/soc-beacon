@@ -1,35 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 import { parseLogFile } from "@/lib/ingestion/parser"
 import { ingestLogsBatch } from "@/lib/pipeline"
-import { getSetting } from "@/lib/db/settings"
 import { getSession } from "@/lib/auth"
+import { validateApiKeyWithRateLimit } from "@/lib/security/api-auth"
 
-async function validateApiKey(request: NextRequest): Promise<{ ok: boolean; status: number; error: string }> {
+async function validateAccess(request: NextRequest): Promise<{ ok: boolean; status: number; error: string }> {
   const session = await getSession()
-  if (session) {
-    return { ok: true, status: 200, error: "" }
-  }
-
-  const apiSettings = await getSetting<{ enabled: boolean; apiKey: string }>("api", {
-    enabled: true,
-    apiKey: "",
-  })
-  if (!apiSettings.enabled) {
-    return { ok: false, status: 403, error: "API is disabled" }
-  }
-  if (!apiSettings.apiKey) {
-    return { ok: false, status: 401, error: "API key is not configured" }
-  }
-  const authHeader = request.headers.get("authorization")
-  const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || request.headers.get("x-api-key")
-  if (!apiKey || apiKey !== apiSettings.apiKey) {
-    return { ok: false, status: 401, error: "Unauthorized" }
-  }
-  return { ok: true, status: 200, error: "" }
+  if (session) return { ok: true, status: 200, error: "" }
+  return validateApiKeyWithRateLimit(request, "v1:upload", 45, 60_000)
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await validateApiKey(request)
+  const auth = await validateAccess(request)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

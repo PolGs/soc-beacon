@@ -5,6 +5,7 @@ import Link from "next/link"
 import { ChevronLeft } from "lucide-react"
 import { getSetting } from "@/lib/db/settings"
 import { getThreatFeeds } from "@/lib/db/threat-feeds"
+import { getSession } from "@/lib/auth"
 
 export const dynamic = "force-dynamic"
 
@@ -25,6 +26,7 @@ export default async function AlertDetailPage({
   ])
 
   const activeThreatFeeds = threatFeeds.filter((f) => f.enabled).length
+  const session = await getSession()
 
   const pipelineSettings = {
     sigmaEnabled: !!sigmaSettings?.enabled,
@@ -47,7 +49,7 @@ export default async function AlertDetailPage({
           Back to Alerts
         </Link>
       </div>
-      <AlertDetail alert={alert} pipelineSettings={pipelineSettings} />
+      <AlertDetail alert={alert} pipelineSettings={pipelineSettings} currentUser={session?.user || "unknown"} />
     </div>
   )
 }

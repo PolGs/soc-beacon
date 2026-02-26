@@ -1,0 +1,36 @@
+services:
+  soc-beacon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: soc-beacon
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      SOC_BEACON_DB_PATH: /app/data/soc-beacon.db
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_COLLECTION: soc_beacon_alert_memory
+      RAG_EMBEDDING_MODEL: text-embedding-3-small
+      # Optional:
+      # QDRANT_API_KEY: your-qdrant-api-key
+    ports:
+      - "3000:3000"
+    volumes:
+      - soc_beacon_data:/app/data
+    depends_on:
+      - qdrant
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  soc_beacon_data:
+  qdrant_data:

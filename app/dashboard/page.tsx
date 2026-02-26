@@ -4,19 +4,22 @@ import { RecentAlerts } from "@/components/recent-alerts"
 import { SourceDistribution } from "@/components/source-distribution"
 import { MitreHeatmap } from "@/components/mitre-heatmap"
 import { SystemStatus } from "@/components/system-status"
+import { DetectionQuality } from "@/components/detection-quality"
 import { getAlertCounts, getTimelineData, getSourceDistribution, getTopMitreTechniques, getAlerts } from "@/lib/db/alerts"
 import { getAllSettings } from "@/lib/db/settings"
+import { getDetectionQualityReport } from "@/lib/metrics/detection-quality"
 
 export const dynamic = "force-dynamic"
 
 export default async function DashboardOverview() {
-  const [counts, timeline, sources, mitre, recentAlerts, settings] = await Promise.all([
+  const [counts, timeline, sources, mitre, recentAlerts, settings, quality] = await Promise.all([
     getAlertCounts(),
     getTimelineData(24),
     getSourceDistribution(),
     getTopMitreTechniques(6),
     getAlerts({ limit: 6 }),
     getAllSettings(),
+    getDetectionQualityReport(2000),
   ])
 
   return (
@@ -26,7 +29,7 @@ export default async function DashboardOverview() {
         <div>
           <h1 className="text-lg font-semibold text-foreground">Overview</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Real-time security posture and threat landscape
+            Real-time ticket-focused security posture from ingested logs converted into actionable alerts
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -39,6 +42,7 @@ export default async function DashboardOverview() {
 
       {/* Stats */}
       <OverviewStats counts={counts} />
+      <DetectionQuality report={quality} />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -16,15 +16,19 @@ function stmtToObjects(db: Awaited<ReturnType<typeof getDb>>, sql: string, param
 export async function authenticateUser(
   username: string,
   password: string
-): Promise<{ id: string; username: string } | null> {
+): Promise<{ id: string; username: string; role: "admin" | "analyst" } | null> {
   const db = await getDb()
-  const rows = stmtToObjects(db, "SELECT id, username, password_hash FROM users WHERE username = ?", [username])
+  const rows = stmtToObjects(db, "SELECT id, username, role, password_hash FROM users WHERE username = ?", [username])
   if (rows.length === 0) return null
 
   const user = rows[0]
   if (!compareSync(password, user.password_hash as string)) return null
 
-  return { id: user.id as string, username: user.username as string }
+  return {
+    id: user.id as string,
+    username: user.username as string,
+    role: ((user.role as string) === "admin" ? "admin" : "analyst"),
+  }
 }
 
 export async function changePassword(
@@ -47,13 +51,27 @@ export async function changePassword(
   return { success: true }
 }
 
-export async function createUser(username: string, password: string): Promise<string> {
+export async function createUser(username: string, password: string, role: "admin" | "analyst" = "analyst"): Promise<string> {
   const db = await getDb()
   const id = nanoid()
   const hash = hashSync(password, 10)
-  db.run("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)", [id, username, hash])
+  db.run("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)", [id, username, hash, role])
   persistDb()
   return id
+}
+
+export async function listUsers(): Promise<Array<{ id: string; username: string; role: "admin" | "analyst"; createdAt: string }>> {
+  const db = await getDb()
+  const rows = stmtToObjects(
+    db,
+    "SELECT id, username, role, created_at FROM users ORDER BY CASE WHEN role = 'admin' THEN 0 ELSE 1 END, username ASC"
+  )
+  return rows.map((r) => ({
+    id: r.id as string,
+    username: r.username as string,
+    role: (r.role as string) === "admin" ? "admin" : "analyst",
+    createdAt: (r.created_at as string) || "",
+  }))
 }
 
 export async function isDefaultAdminPassword(): Promise<boolean> {

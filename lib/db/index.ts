@@ -94,6 +94,7 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'analyst' CHECK(role IN ('admin','analyst')),
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -145,6 +146,7 @@ CREATE INDEX IF NOT EXISTS idx_alerts_timestamp ON alerts(timestamp);
 CREATE TABLE IF NOT EXISTS alert_enrichments (
   alert_id TEXT PRIMARY KEY,
   ai_analysis TEXT,
+  ai_summary_short TEXT,
   ioc_type TEXT,
   threat_intel TEXT,
   recommendation TEXT,
@@ -157,10 +159,27 @@ CREATE TABLE IF NOT EXISTS alert_enrichments (
   asn_info TEXT,
   sigma_match TEXT,
   parse_confidence REAL,
+  extracted_fields TEXT,
+  field_confidence TEXT,
+  verdict_reason TEXT,
+  verdict_factors TEXT,
   enriched_at TEXT DEFAULT (datetime('now')),
   llm_provider TEXT,
   llm_model TEXT
 );
+
+CREATE TABLE IF NOT EXISTS alert_notes (
+  id TEXT PRIMARY KEY,
+  alert_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  note_text TEXT NOT NULL,
+  image_data TEXT,
+  image_mime TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  FOREIGN KEY(alert_id) REFERENCES alerts(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_alert_notes_alert_id ON alert_notes(alert_id);
+CREATE INDEX IF NOT EXISTS idx_alert_notes_created_at ON alert_notes(created_at);
 
 CREATE TABLE IF NOT EXISTS yara_rules (
   id TEXT PRIMARY KEY,
@@ -199,6 +218,12 @@ function tableHasColumn(database: Database, table: string, column: string): bool
 }
 
 function migrateSchema(database: Database) {
+  if (!tableHasColumn(database, "users", "role")) {
+    database.run("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'analyst' CHECK(role IN ('admin','analyst'))")
+    database.run("UPDATE users SET role = 'admin' WHERE username = 'admin'")
+    database.run("UPDATE users SET role = 'analyst' WHERE role IS NULL OR role = ''")
+  }
+
   if (!tableHasColumn(database, "alerts", "incident_status")) {
     database.run(
       "ALTER TABLE alerts ADD COLUMN incident_status TEXT NOT NULL DEFAULT 'unassigned' CHECK(incident_status IN ('unassigned','in_progress','resolved'))"
@@ -244,19 +269,46 @@ function migrateSchema(database: Database) {
     database.run("ALTER TABLE alert_enrichments ADD COLUMN parse_confidence REAL")
   }
 
+  if (!tableHasColumn(database, "alert_enrichments", "extracted_fields")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN extracted_fields TEXT")
+  }
+
+  if (!tableHasColumn(database, "alert_enrichments", "field_confidence")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN field_confidence TEXT")
+  }
+
   if (!tableHasColumn(database, "alert_enrichments", "threat_intel_vendors")) {
     database.run("ALTER TABLE alert_enrichments ADD COLUMN threat_intel_vendors TEXT")
+  }
+
+  if (!tableHasColumn(database, "alert_enrichments", "ai_summary_short")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN ai_summary_short TEXT")
+  }
+
+  if (!tableHasColumn(database, "alert_enrichments", "verdict_reason")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN verdict_reason TEXT")
+  }
+
+  if (!tableHasColumn(database, "alert_enrichments", "verdict_factors")) {
+    database.run("ALTER TABLE alert_enrichments ADD COLUMN verdict_factors TEXT")
   }
 }
 
 function seedDatabase(database: Database) {
   // Seed admin user
   const adminId = nanoid()
-  const hash = hashSync("admin", 10)
+  const configuredAdminPassword = (process.env.SOC_BEACON_ADMIN_PASSWORD || "").trim()
+  const bootstrapAdminPassword = configuredAdminPassword || nanoid(24)
+  const hash = hashSync(bootstrapAdminPassword, 10)
   database.run(
-    "INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)",
-    [adminId, "admin", hash]
+    "INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)",
+    [adminId, "admin", hash, "admin"]
   )
+  if (!configuredAdminPassword) {
+    console.warn(
+      `[soc-beacon] Bootstrapped admin user with generated password (set SOC_BEACON_ADMIN_PASSWORD to control this): ${bootstrapAdminPassword}`
+    )
+  }
 
   // Seed default settings
   const defaults: Record<string, unknown> = {
@@ -272,15 +324,74 @@ function seedDatabase(database: Database) {
       temperature: 0.1,
       autoEnrich: true,
       analysisAgents: 3,
+      agents: [
+        {
+          id: "triage",
+          name: "Incident Triage Expert",
+          description: "Scores risk and explains likely attacker objective.",
+          enabled: true,
+          model: "gpt-4.1-nano",
+          prompt: "Explain what happened, probable attacker objective, and assign AI score.",
+          maxTokens: 700,
+          temperature: 0.1,
+        },
+        {
+          id: "ioc_detection",
+          name: "IOC and Detection Expert",
+          description: "Validates indicators and detection quality, highlights likely false positives.",
+          enabled: true,
+          model: "gpt-4.1-nano",
+          prompt: "Validate IOC type quality, tune MITRE mapping, and note likely false positives.",
+          maxTokens: 700,
+          temperature: 0.1,
+        },
+        {
+          id: "threat_intel",
+          name: "Threat Intelligence Correlation Expert",
+          description: "Correlates event context with threat intel history and active compromise risk.",
+          enabled: true,
+          model: "gpt-4.1-nano",
+          prompt: "Correlate event against threat intel and assess probability of active compromise.",
+          maxTokens: 700,
+          temperature: 0.1,
+        },
+        {
+          id: "response",
+          name: "Incident Response Lead",
+          description: "Creates prioritized containment and investigation actions.",
+          enabled: true,
+          model: "gpt-4.1-nano",
+          prompt: "Produce concise prioritized containment and investigation steps.",
+          maxTokens: 700,
+          temperature: 0.1,
+        },
+        {
+          id: "summary_header",
+          name: "Alert Header Summary Agent",
+          description: "Generates a strict max-30-word alert summary for header display.",
+          enabled: true,
+          model: "gpt-4.1-nano",
+          prompt: "Summarize this alert in one sentence, maximum 30 words, technical and actionable, no markdown.",
+          maxTokens: 120,
+          temperature: 0.1,
+        },
+      ],
       autoStatusConfidenceThreshold: 90,
       verdictMaliciousThreshold: 80,
       verdictSuspiciousThreshold: 45,
+      fpAutoResolveThreshold: 30,
+      neverAutoResolveLowEvidence: true,
+      minAutoResolveEvidence: 55,
+      sourceThresholds: {},
     },
     yara: { enabled: true, autoUpdate: true },
     sigma: {
       enabled: false,
       rulesPath: "",
       maxRules: 500,
+    },
+    pipeline: {
+      fieldConfidenceThreshold: 60,
     },
     syslogOutput: {
       enabled: false,

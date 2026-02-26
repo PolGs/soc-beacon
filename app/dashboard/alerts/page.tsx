@@ -11,7 +11,7 @@ export default async function AlertsPage() {
       <div>
         <h1 className="text-lg font-semibold text-foreground">Alerts</h1>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Security alerts classified by severity with AI enrichment
+          Logs are ingested in the background and converted into triage-ready alerts/tickets with AI enrichment
         </p>
       </div>
       <AlertsView initialAlerts={alerts} />

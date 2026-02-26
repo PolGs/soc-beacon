@@ -56,7 +56,7 @@ export default async function LoginPage() {
 
           <div className="mt-6 pt-4 border-t border-border/50">
             <p className="text-[11px] text-muted-foreground/60 text-center leading-relaxed">
-              Default credentials: admin / admin
+              Use your assigned credentials.
             </p>
           </div>
         </div>

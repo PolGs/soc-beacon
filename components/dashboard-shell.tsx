@@ -8,15 +8,18 @@ import { forceChangeDefaultPasswordAction, logoutAction } from "@/app/actions"
 import {
   LayoutDashboard,
   ShieldAlert,
-  ScrollText,
   Settings,
   FileText,
+  Lightbulb,
   LogOut,
   ChevronLeft,
   ChevronRight,
   Lock,
+  Sun,
+  Moon,
 } from "lucide-react"
 import { useState, useTransition } from "react"
+import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -26,7 +29,7 @@ import { toast } from "sonner"
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/dashboard/alerts", label: "Alerts", icon: ShieldAlert },
-  { href: "/dashboard/logs", label: "Log Explorer", icon: ScrollText },
+  { href: "/dashboard/recommendations", label: "Recommendations", icon: Lightbulb },
   { href: "/dashboard/system-logs", label: "System Logs", icon: FileText },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ]
@@ -45,6 +48,8 @@ export function DashboardShell({
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [isPending, startTransition] = useTransition()
+  const { resolvedTheme, setTheme } = useTheme()
+  const darkMode = resolvedTheme !== "light"
 
   const handleForcePasswordChange = () => {
     if (newPassword.length < 8) {
@@ -184,6 +189,19 @@ export function DashboardShell({
             >
               {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
               {!collapsed && <span className="ml-2 text-xs">Collapse</span>}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setTheme(darkMode ? "light" : "dark")}
+              className={cn(
+                "h-8 text-muted-foreground hover:text-foreground w-full",
+                collapsed ? "justify-center px-0" : "justify-start px-3"
+              )}
+            >
+              {darkMode ? <Sun className="w-4 h-4 shrink-0" /> : <Moon className="w-4 h-4 shrink-0" />}
+              {!collapsed && <span className="ml-2 text-xs">{darkMode ? "Light Theme" : "Dark Theme"}</span>}
             </Button>
 
             <form action={logoutAction}>

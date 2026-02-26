@@ -1,6 +1,6 @@
 "use client"
 
-import type { Alert, IncidentStatus, AlertVerdict, ThreatIntelVendorResult } from "@/lib/types"
+import type { Alert, IncidentStatus, AlertVerdict, ThreatIntelVendorResult, AlertNote } from "@/lib/types"
 import type { YaraRuleResult } from "@/lib/yara"
 import { SeverityBadge } from "@/components/severity-badge"
 import { StatusBadge } from "@/components/status-badge"
@@ -34,6 +34,8 @@ import {
   ShieldBan,
   ShieldOff,
   ExternalLink,
+  MessageSquare,
+  ImagePlus,
 } from "lucide-react"
 import { useState, useTransition, useMemo, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
@@ -43,10 +45,13 @@ import {
   updateAlertIncidentStatusAction,
   updateAlertVerdictAction,
   getYaraDetailsAction,
+  getAlertNotesAction,
+  addAlertNoteAction,
 } from "@/app/actions"
 import { CombinedScoreDisplay } from "@/components/score-ring"
 import { extractStructuredFields, getDisplayFields } from "@/lib/ingestion/structured-fields"
 import { cn } from "@/lib/utils"
+import { Textarea } from "@/components/ui/textarea"
 
 interface PipelineSettings {
   sigmaEnabled: boolean
@@ -107,8 +112,8 @@ function buildPipelineChecks(alert: Alert, settings: PipelineSettings): Pipeline
       id: "classifier",
       label: "Built-in Classifier",
       icon: ShieldCheck,
-      status: mitreTactic && mitreTactic !== "Unknown" ? "match" : "no_match",
-      detail: mitreTactic !== "Unknown" ? mitreTactic : "No match",
+      status: "ok",
+      detail: mitreTactic !== "Unknown" ? `Executed · mapped: ${mitreTactic}` : "Executed · no mapping",
     },
     {
       id: "sigma",
@@ -116,14 +121,12 @@ function buildPipelineChecks(alert: Alert, settings: PipelineSettings): Pipeline
       icon: FileCode,
       status: !settings.sigmaEnabled
         ? "disabled"
-        : enrichment.sigma
-          ? "match"
-          : "no_match",
+        : "ok",
       detail: !settings.sigmaEnabled
         ? "Disabled"
         : enrichment.sigma?.title
-          ? enrichment.sigma.title
-          : "No match",
+          ? `Executed · matched: ${enrichment.sigma.title}`
+          : "Executed · no match",
     },
     {
       id: "yara",
@@ -131,14 +134,12 @@ function buildPipelineChecks(alert: Alert, settings: PipelineSettings): Pipeline
       icon: Hash,
       status: !settings.yaraEnabled
         ? "disabled"
-        : yaraMatch
-          ? "match"
-          : "no_match",
+        : "ok",
       detail: !settings.yaraEnabled
         ? "Disabled"
         : yaraMatch
-          ? yaraMatch
-          : "No match",
+          ? `Executed · matched: ${yaraMatch}`
+          : "Executed · no match",
     },
     {
       id: "fields",
@@ -560,6 +561,145 @@ function YaraResultsPanel({
   )
 }
 
+function toShortAiSummary(text: string, maxWords = 30): string {
+  const cleaned = text
+    .replace(/\s+/g, " ")
+    .replace(/^Agent\s+\d+:\s*/i, "")
+    .trim()
+  if (!cleaned) return "AI summary unavailable for this alert."
+  const words = cleaned.split(" ").filter(Boolean)
+  if (words.length <= maxWords) return cleaned
+  return words.slice(0, maxWords).join(" ")
+}
+
+function NotesPanel({
+  alertId,
+  currentUser,
+}: {
+  alertId: string
+  currentUser: string
+}) {
+  const [notes, setNotes] = useState<AlertNote[]>([])
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [noteText, setNoteText] = useState("")
+  const [imageData, setImageData] = useState<string | null>(null)
+  const [imageMime, setImageMime] = useState<string | null>(null)
+
+  const loadNotes = async () => {
+    setLoading(true)
+    const result = await getAlertNotesAction(alertId)
+    if (result.success && result.notes) setNotes(result.notes)
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    loadNotes()
+  }, [alertId])
+
+  const onFileChange = (file: File | null) => {
+    if (!file) {
+      setImageData(null)
+      setImageMime(null)
+      return
+    }
+    if (!file.type.startsWith("image/")) return
+    if (file.size > 2 * 1024 * 1024) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : ""
+      if (result) {
+        setImageData(result)
+        setImageMime(file.type)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const submitNote = async () => {
+    if (!noteText.trim()) return
+    setSubmitting(true)
+    const res = await addAlertNoteAction(alertId, noteText, imageData, imageMime)
+    if (res.success) {
+      setNoteText("")
+      setImageData(null)
+      setImageMime(null)
+      await loadNotes()
+    }
+    setSubmitting(false)
+  }
+
+  return (
+    <div className="glass rounded-lg p-5 flex flex-col gap-4">
+      <div className="flex items-center gap-2">
+        <MessageSquare className="w-4 h-4 text-foreground/60" />
+        <h3 className="text-sm font-medium text-foreground">Incident Notes</h3>
+      </div>
+
+      <div className="bg-background/50 rounded-md p-3 border border-border/30 flex flex-col gap-2">
+        <div className="text-[11px] text-muted-foreground">Posting as {currentUser}</div>
+        <Textarea
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="Add analyst note, finding, or investigation update..."
+          className="min-h-24 text-xs bg-background/70 border-border/50"
+        />
+        <div className="flex items-center justify-between">
+          <label className="text-[11px] text-muted-foreground flex items-center gap-1.5 cursor-pointer">
+            <ImagePlus className="w-3.5 h-3.5" />
+            Attach image (optional)
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => onFileChange(e.target.files?.[0] || null)}
+            />
+          </label>
+          <button
+            onClick={submitNote}
+            disabled={submitting || !noteText.trim()}
+            className="px-3 py-1.5 rounded-md border border-border/40 text-[11px] text-muted-foreground hover:text-foreground hover:border-foreground/30 disabled:opacity-50"
+          >
+            {submitting ? "Posting..." : "Post Note"}
+          </button>
+        </div>
+        {imageData && (
+          <div className="rounded-md overflow-hidden border border-border/30 max-w-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imageData} alt="note attachment preview" className="w-full h-auto" />
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {loading ? (
+          <div className="text-xs text-muted-foreground/70">Loading notes...</div>
+        ) : notes.length === 0 ? (
+          <div className="text-xs text-muted-foreground/70">No notes yet.</div>
+        ) : (
+          notes.map((n) => (
+            <div key={n.id} className="bg-background/50 rounded-md p-3 border border-border/30 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-foreground/80">{n.username}</span>
+                <span className="text-[10px] text-muted-foreground/60">
+                  {new Date(n.createdAt).toLocaleString()}
+                </span>
+              </div>
+              <p className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed">{n.noteText}</p>
+              {n.imageData && (
+                <div className="rounded-md overflow-hidden border border-border/30 max-w-md">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={n.imageData} alt="note attachment" className="w-full h-auto" />
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ──────────────────────────────────────────────────────────────────
 // Threat Intel Vendor Panel
 // ──────────────────────────────────────────────────────────────────
@@ -674,9 +814,11 @@ function ThreatIntelVendorPanel({
 export function AlertDetail({
   alert,
   pipelineSettings,
+  currentUser,
 }: {
   alert: Alert
   pipelineSettings?: PipelineSettings
+  currentUser: string
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -698,6 +840,10 @@ export function AlertDetail({
   }
   const settings = pipelineSettings ?? defaultPipelineSettings
   const pipelineChecks = buildPipelineChecks(alert, settings)
+  const aiHeaderSummary = useMemo(
+    () => toShortAiSummary(alert.enrichment.aiSummaryShort || alert.enrichment.aiAnalysis || alert.description, 30),
+    [alert.enrichment.aiSummaryShort, alert.enrichment.aiAnalysis, alert.description]
+  )
 
   const handleIncidentStatusChange = (incidentStatus: IncidentStatus) => {
     startTransition(() => {
@@ -867,6 +1013,16 @@ export function AlertDetail({
                 <TimestampPill label="Last Analyzed" ts={alert.lastAnalyzedAt} highlight />
               )}
             </div>
+
+            <div className="rounded-md border border-sky-500/20 bg-sky-500/[0.06] px-3.5 py-2.5 max-w-3xl">
+              <div className="flex items-center gap-1.5 mb-1">
+                <Brain className="w-3.5 h-3.5 text-sky-300/80" />
+                <span className="text-[10px] uppercase tracking-wider text-sky-200/80 font-medium">
+                  AI Summary
+                </span>
+              </div>
+              <p className="text-xs text-foreground/85 leading-relaxed">{aiHeaderSummary}</p>
+            </div>
           </div>
 
           {/* Right: Score display */}
@@ -874,6 +1030,7 @@ export function AlertDetail({
             <CombinedScoreDisplay
               aiScore={alert.enrichment.aiScore}
               heuristicsScore={alert.enrichment.heuristicsScore}
+              loading={scanState === "scanning"}
             />
           </div>
         </div>
@@ -958,6 +1115,13 @@ export function AlertDetail({
             Enrichment
           </TabsTrigger>
           <TabsTrigger
+            value="notes"
+            className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
+          >
+            <MessageSquare className="w-3.5 h-3.5 mr-1.5" />
+            Notes
+          </TabsTrigger>
+          <TabsTrigger
             value="raw"
             className="text-xs data-[state=active]:bg-foreground/10 data-[state=active]:text-foreground h-7"
           >
@@ -994,6 +1158,18 @@ export function AlertDetail({
                 <p className="text-xs text-foreground/80 leading-relaxed">{alert.enrichment.aiAnalysis}</p>
               </div>
             </div>
+
+            {alert.enrichment.verdictReason && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-foreground/60" />
+                  <h3 className="text-sm font-medium text-foreground">Verdict Rationale</h3>
+                </div>
+                <div className="bg-background/50 rounded-md p-4 border border-border/30">
+                  <p className="text-xs text-foreground/80 leading-relaxed">{alert.enrichment.verdictReason}</p>
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-2">
@@ -1240,7 +1416,32 @@ export function AlertDetail({
 
             {/* Threat Intel Vendor Results */}
             <ThreatIntelVendorPanel vendors={alert.enrichment.threatIntelVendors} summary={alert.enrichment.threatIntel} />
+
+            {alert.enrichment.fieldConfidence && Object.keys(alert.enrichment.fieldConfidence).length > 0 && (
+              <div className="bg-background/50 rounded-md p-4 border border-border/30">
+                <div className="flex items-center gap-2 mb-2">
+                  <DatabaseZap className="w-3.5 h-3.5 text-foreground/60" />
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                    Confidence Provenance (Field-Level)
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {Object.entries(alert.enrichment.fieldConfidence)
+                    .sort((a, b) => (b[1] || 0) - (a[1] || 0))
+                    .map(([field, value]) => (
+                      <div key={field} className="flex items-center justify-between text-[11px] bg-background/70 rounded px-2.5 py-1.5 border border-border/20">
+                        <span className="font-mono text-foreground/75">{field}</span>
+                        <span className="text-muted-foreground">{Math.round(value || 0)}%</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="notes" className="mt-4">
+          <NotesPanel alertId={alert.id} currentUser={currentUser} />
         </TabsContent>
 
         <TabsContent value="raw" className="mt-4">

@@ -20,6 +20,7 @@ export async function getEnrichment(alertId: string): Promise<AlertEnrichment | 
   const r = rows[0]
   return {
     aiAnalysis: (r.ai_analysis as string) || "",
+    aiSummaryShort: (r.ai_summary_short as string) || undefined,
     iocType: (r.ioc_type as string) || "",
     threatIntel: (r.threat_intel as string) || "",
     recommendation: (r.recommendation as string) || "",
@@ -32,6 +33,10 @@ export async function getEnrichment(alertId: string): Promise<AlertEnrichment | 
       : null,
     asnInfo: (r.asn_info as string) || null,
     parseConfidence: typeof r.parse_confidence === "number" ? (r.parse_confidence as number) : undefined,
+    extractedFields: r.extracted_fields ? JSON.parse(r.extracted_fields as string) : undefined,
+    fieldConfidence: r.field_confidence ? JSON.parse(r.field_confidence as string) : undefined,
+    verdictReason: (r.verdict_reason as string) || undefined,
+    verdictFactors: r.verdict_factors ? JSON.parse(r.verdict_factors as string) : undefined,
     sigma: r.sigma_match ? JSON.parse(r.sigma_match as string) : null,
     threatIntelVendors: r.threat_intel_vendors ? JSON.parse(r.threat_intel_vendors as string) : undefined,
   }
@@ -41,6 +46,7 @@ export async function upsertEnrichment(
   alertId: string,
   data: Partial<{
     aiAnalysis: string
+    aiSummaryShort: string
     iocType: string
     threatIntel: string
     recommendation: string
@@ -53,6 +59,10 @@ export async function upsertEnrichment(
     asnInfo: string
     sigmaMatch: SigmaMatch | null
     parseConfidence: number
+    extractedFields: Record<string, unknown>
+    fieldConfidence: Record<string, number>
+    verdictReason: string
+    verdictFactors: Record<string, unknown>
     llmProvider: string
     llmModel: string
     threatIntelVendors: ThreatIntelVendorResult[]
@@ -65,6 +75,7 @@ export async function upsertEnrichment(
     const updates: string[] = []
     const params: unknown[] = []
     if (data.aiAnalysis !== undefined) { updates.push("ai_analysis = ?"); params.push(data.aiAnalysis) }
+    if (data.aiSummaryShort !== undefined) { updates.push("ai_summary_short = ?"); params.push(data.aiSummaryShort) }
     if (data.iocType !== undefined) { updates.push("ioc_type = ?"); params.push(data.iocType) }
     if (data.threatIntel !== undefined) { updates.push("threat_intel = ?"); params.push(data.threatIntel) }
     if (data.recommendation !== undefined) { updates.push("recommendation = ?"); params.push(data.recommendation) }
@@ -77,6 +88,10 @@ export async function upsertEnrichment(
     if (data.asnInfo !== undefined) { updates.push("asn_info = ?"); params.push(data.asnInfo) }
     if (data.sigmaMatch !== undefined) { updates.push("sigma_match = ?"); params.push(data.sigmaMatch ? JSON.stringify(data.sigmaMatch) : null) }
     if (data.parseConfidence !== undefined) { updates.push("parse_confidence = ?"); params.push(data.parseConfidence) }
+    if (data.extractedFields !== undefined) { updates.push("extracted_fields = ?"); params.push(JSON.stringify(data.extractedFields)) }
+    if (data.fieldConfidence !== undefined) { updates.push("field_confidence = ?"); params.push(JSON.stringify(data.fieldConfidence)) }
+    if (data.verdictReason !== undefined) { updates.push("verdict_reason = ?"); params.push(data.verdictReason) }
+    if (data.verdictFactors !== undefined) { updates.push("verdict_factors = ?"); params.push(JSON.stringify(data.verdictFactors)) }
     if (data.llmProvider !== undefined) { updates.push("llm_provider = ?"); params.push(data.llmProvider) }
     if (data.llmModel !== undefined) { updates.push("llm_model = ?"); params.push(data.llmModel) }
     if (data.threatIntelVendors !== undefined) { updates.push("threat_intel_vendors = ?"); params.push(JSON.stringify(data.threatIntelVendors)) }
@@ -88,11 +103,12 @@ export async function upsertEnrichment(
     }
   } else {
     db.run(
-      `INSERT INTO alert_enrichments (alert_id, ai_analysis, ioc_type, threat_intel, recommendation, confidence, ai_score, heuristics_score, related_cves, geo_country, geo_city, asn_info, sigma_match, parse_confidence, llm_provider, llm_model, threat_intel_vendors)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO alert_enrichments (alert_id, ai_analysis, ai_summary_short, ioc_type, threat_intel, recommendation, confidence, ai_score, heuristics_score, related_cves, geo_country, geo_city, asn_info, sigma_match, parse_confidence, extracted_fields, field_confidence, verdict_reason, verdict_factors, llm_provider, llm_model, threat_intel_vendors)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         alertId,
         data.aiAnalysis || null,
+        data.aiSummaryShort || null,
         data.iocType || null,
         data.threatIntel || null,
         data.recommendation || null,
@@ -105,6 +121,10 @@ export async function upsertEnrichment(
         data.asnInfo || null,
         data.sigmaMatch ? JSON.stringify(data.sigmaMatch) : null,
         data.parseConfidence ?? null,
+        data.extractedFields ? JSON.stringify(data.extractedFields) : null,
+        data.fieldConfidence ? JSON.stringify(data.fieldConfidence) : null,
+        data.verdictReason || null,
+        data.verdictFactors ? JSON.stringify(data.verdictFactors) : null,
         data.llmProvider || null,
         data.llmModel || null,
         data.threatIntelVendors ? JSON.stringify(data.threatIntelVendors) : null,

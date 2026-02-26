@@ -1,13 +1,14 @@
 "use client"
 
-import { useMemo, useState, useRef, useCallback } from "react"
+import { useMemo, useState, useRef, useCallback, useEffect } from "react"
 import Link from "next/link"
-import type { Alert, Severity, IncidentStatus } from "@/lib/types"
+import type { Alert, Severity, IncidentStatus, AlertVerdict } from "@/lib/types"
 import { SeverityBadge } from "@/components/severity-badge"
 import { StatusBadge } from "@/components/status-badge"
 import { VerdictBadge } from "@/components/verdict-badge"
 import { ScoreRing } from "@/components/score-ring"
 import { cn } from "@/lib/utils"
+import { updateAlertIncidentStatusAction, updateAlertVerdictAction } from "@/app/actions"
 import {
   Search,
   Filter,
@@ -22,6 +23,7 @@ import {
   X,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { useRouter } from "next/navigation"
 
 // ──────────────────────────────────────────────────────────────────
 // Types & Constants
@@ -364,6 +366,9 @@ interface AlertsViewProps {
 }
 
 export function AlertsView({ initialAlerts }: AlertsViewProps) {
+  const router = useRouter()
+  const [alerts, setAlerts] = useState<Alert[]>(initialAlerts)
+  const [updatingRows, setUpdatingRows] = useState<Record<string, boolean>>({})
   const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all")
   const [incidentStatusFilter, setIncidentStatusFilter] = useState<IncidentStatus | "all">("all")
   const [searchQuery, setSearchQuery] = useState("")
@@ -375,8 +380,49 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
     new Set(ALL_COLUMNS.filter((c) => c.defaultVisible).map((c) => c.key))
   )
 
+  useEffect(() => {
+    setAlerts(initialAlerts)
+  }, [initialAlerts])
+
+  const markUpdating = useCallback((id: string, value: boolean) => {
+    setUpdatingRows((prev) => {
+      const next = { ...prev }
+      if (value) next[id] = true
+      else delete next[id]
+      return next
+    })
+  }, [])
+
+  const handleInlineIncidentChange = useCallback(async (id: string, next: IncidentStatus) => {
+    const previous = alerts
+    setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, incidentStatus: next } : a)))
+    markUpdating(id, true)
+    try {
+      await updateAlertIncidentStatusAction(id, next)
+      router.refresh()
+    } catch {
+      setAlerts(previous)
+    } finally {
+      markUpdating(id, false)
+    }
+  }, [alerts, markUpdating, router])
+
+  const handleInlineVerdictChange = useCallback(async (id: string, next: AlertVerdict) => {
+    const previous = alerts
+    setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, verdict: next } : a)))
+    markUpdating(id, true)
+    try {
+      await updateAlertVerdictAction(id, next)
+      router.refresh()
+    } catch {
+      setAlerts(previous)
+    } finally {
+      markUpdating(id, false)
+    }
+  }, [alerts, markUpdating, router])
+
   const filtered = useMemo(() => {
-    const base = initialAlerts.filter((a) => {
+    const base = alerts.filter((a) => {
       if (severityFilter !== "all" && a.severity !== severityFilter) return false
       if (incidentStatusFilter !== "all" && a.incidentStatus !== incidentStatusFilter) return false
       if (searchQuery) {
@@ -393,15 +439,15 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
       return true
     })
     return sortAlerts(base, sortKey, sortDirection)
-  }, [incidentStatusFilter, initialAlerts, searchQuery, severityFilter, sortDirection, sortKey])
+  }, [alerts, incidentStatusFilter, searchQuery, severityFilter, sortDirection, sortKey])
 
   const severityCounts = useMemo(
     () =>
-      initialAlerts.reduce((acc, a) => {
+      alerts.reduce((acc, a) => {
         acc[a.severity] = (acc[a.severity] || 0) + 1
         return acc
       }, {} as Record<string, number>),
-    [initialAlerts]
+    [alerts]
   )
 
   const toggleColumn = useCallback((key: ColumnKey) => {
@@ -457,7 +503,7 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
       {/* Severity filter chips */}
       <div className="flex flex-wrap items-center gap-2">
         {severityFilters.map((f) => {
-          const count = f.key === "all" ? initialAlerts.length : severityCounts[f.key] || 0
+          const count = f.key === "all" ? alerts.length : severityCounts[f.key] || 0
           return (
             <button
               key={f.key}
@@ -584,8 +630,8 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
                   key={alert.id}
                   className="border-b border-border/20 last:border-0 hover:bg-foreground/[0.025] transition-colors group cursor-pointer"
                   onClick={(e) => {
-                    // Don't navigate if clicking a link inside the row
-                    if ((e.target as HTMLElement).closest("a")) return
+                    // Don't navigate if clicking interactive controls in the row
+                    if ((e.target as HTMLElement).closest("a,select,option,button,input")) return
                     window.location.href = `/dashboard/alerts/${alert.id}`
                   }}
                 >
@@ -626,9 +672,45 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
                           <span className="text-[11px] text-muted-foreground">{alert.mitreTactic}</span>
                         )}
 
-                        {key === "verdict" && <VerdictBadge verdict={alert.verdict} />}
+                        {key === "verdict" && (
+                          <div className="flex items-center gap-2">
+                            <VerdictBadge verdict={alert.verdict} />
+                            <select
+                              value={alert.verdict}
+                              disabled={!!updatingRows[alert.id]}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                handleInlineVerdictChange(alert.id, e.target.value as AlertVerdict)
+                              }}
+                              className="h-7 rounded-md border border-border/50 bg-background/60 px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/30 disabled:opacity-60"
+                            >
+                              <option value="malicious">Malicious</option>
+                              <option value="suspicious">Suspicious</option>
+                              <option value="false_positive">False Positive</option>
+                            </select>
+                          </div>
+                        )}
 
-                        {key === "incident" && <StatusBadge status={alert.incidentStatus} />}
+                        {key === "incident" && (
+                          <div className="flex items-center gap-2">
+                            <StatusBadge status={alert.incidentStatus} />
+                            <select
+                              value={alert.incidentStatus}
+                              disabled={!!updatingRows[alert.id]}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation()
+                                handleInlineIncidentChange(alert.id, e.target.value as IncidentStatus)
+                              }}
+                              className="h-7 rounded-md border border-border/50 bg-background/60 px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/30 disabled:opacity-60"
+                            >
+                              <option value="unassigned">Unassigned</option>
+                              <option value="in_progress">In Progress</option>
+                              <option value="resolved">Resolved</option>
+                            </select>
+                          </div>
+                        )}
 
                         {key === "aiScore" && (
                           <ScoreRing label="AI" score={alert.enrichment.aiScore} size={44} />
@@ -697,9 +779,9 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
       {/* Footer */}
       <div className="flex items-center justify-between">
         <p className="text-[11px] text-muted-foreground">
-          {filtered.length === initialAlerts.length
-            ? `${initialAlerts.length} alert${initialAlerts.length !== 1 ? "s" : ""}`
-            : `${filtered.length} of ${initialAlerts.length} alerts`}
+          {filtered.length === alerts.length
+            ? `${alerts.length} alert${alerts.length !== 1 ? "s" : ""}`
+            : `${filtered.length} of ${alerts.length} alerts`}
         </p>
         {sortKey !== "timestamp" && (
           <button

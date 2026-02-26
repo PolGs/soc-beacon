@@ -120,6 +120,60 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) — the database initializes automatically on first run.
 
+### Reset Admin Password (Without Login)
+
+If you cannot log in as `admin`, you can reset the password directly in the local DB.
+
+1. Stop the app.
+2. Run this in project root (PowerShell):
+
+NewStrongPass123!
+
+```powershell
+@'
+const fs = require("fs")
+const path = require("path")
+const initSqlJs = require("sql.js")
+const bcrypt = require("bcryptjs")
+
+async function main() {
+  const SQL = await initSqlJs()
+  const dbPath = process.env.SOC_BEACON_DB_PATH || path.join(process.cwd(), "data", "soc-beacon.db")
+  const db = new SQL.Database(fs.readFileSync(dbPath))
+
+  const newPassword = process.env.NEW_ADMIN_PASSWORD || "NewStrongPass123!"
+  const hash = bcrypt.hashSync(newPassword, 10)
+
+  db.run(
+    "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE username = ?",
+    [hash, "admin"]
+  )
+
+  fs.writeFileSync(dbPath, Buffer.from(db.export()))
+  console.log("Admin password reset.")
+  console.log("Username: admin")
+  console.log(`Password: ${newPassword}`)
+}
+
+main().catch((err) => {
+  console.error(err)
+  process.exit(1)
+})
+'@ | node
+```
+
+Optional: set a custom password before running:
+
+```powershell
+$env:NEW_ADMIN_PASSWORD = "YourStrongPasswordHere"
+```
+
+Then start again:
+
+```bash
+npm run dev
+```
+
 ### Send Your First Log
 
 ```bash
@@ -341,3 +395,26 @@ Built with [Next.js](https://nextjs.org/), [shadcn/ui](https://ui.shadcn.com/), 
 ---
 
 <sub>**Keywords:** open source security platform, AI security platform, artificial intelligence security platform, AI log analysis, AI log analyst, AI log classification and correlation, open source SIEM alternative, security operations center, SOC platform, threat intelligence platform, log analysis tool, incident response platform, YARA rules, Sigma rules, MITRE ATT&CK, threat detection, security automation, AI-powered security, log correlation engine, open source threat detection</sub>
+
+## RAG Memory (Qdrant)
+
+SOC Beacon can use Qdrant-backed retrieval augmented generation (RAG) during AI enrichment.
+Before scoring an alert as `malicious` or `false_positive`, it retrieves similar previously labeled alerts and adds them to model context.
+
+Environment variables:
+- `QDRANT_URL` (required to enable Qdrant retrieval)
+- `QDRANT_API_KEY` (optional)
+- `QDRANT_COLLECTION` (optional, default `soc_beacon_alert_memory`)
+- `RAG_EMBEDDING_MODEL` (optional, default `text-embedding-3-small`)
+
+If Qdrant is unavailable, SOC Beacon falls back to local historical labeled alerts from the embedded database.
+
+### Docker Production (App + Qdrant)
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+This starts:
+- `soc-beacon` on port `3000`
+- `qdrant` on ports `6333` and `6334`

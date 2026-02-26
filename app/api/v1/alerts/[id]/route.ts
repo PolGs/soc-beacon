@@ -1,32 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
 import { deleteAlert, getAlertById, updateAlertIncidentStatus, updateAlertVerdict } from "@/lib/db/alerts"
-import { getSetting } from "@/lib/db/settings"
 import type { IncidentStatus, AlertVerdict } from "@/lib/types"
-
-async function validateApiKey(request: NextRequest): Promise<{ ok: boolean; status: number; error: string }> {
-  const apiSettings = await getSetting<{ enabled: boolean; apiKey: string }>("api", {
-    enabled: true,
-    apiKey: "",
-  })
-  if (!apiSettings.enabled) {
-    return { ok: false, status: 403, error: "API is disabled" }
-  }
-  if (!apiSettings.apiKey) {
-    return { ok: false, status: 401, error: "API key is not configured" }
-  }
-  const authHeader = request.headers.get("authorization")
-  const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || request.headers.get("x-api-key")
-  if (!apiKey || apiKey !== apiSettings.apiKey) {
-    return { ok: false, status: 401, error: "Unauthorized" }
-  }
-  return { ok: true, status: 200, error: "" }
-}
+import { validateApiKeyWithRateLimit } from "@/lib/security/api-auth"
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await validateApiKey(request)
+  const auth = await validateApiKeyWithRateLimit(request, "v1:alerts:get", 180, 60_000)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -45,7 +26,7 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await validateApiKey(request)
+  const auth = await validateApiKeyWithRateLimit(request, "v1:alerts:patch", 120, 60_000)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -89,7 +70,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await validateApiKey(request)
+  const auth = await validateApiKeyWithRateLimit(request, "v1:alerts:delete", 60, 60_000)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

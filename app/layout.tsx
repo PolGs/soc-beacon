@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
-import { Toaster } from 'sonner'
+import { ThemeProvider } from '@/components/theme-provider'
+import { AppToaster } from '@/components/app-toaster'
 
 import './globals.css'
 
@@ -26,19 +27,12 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`${inter.variable} ${jetbrainsMono.variable}`}>
       <body className="font-sans antialiased min-h-screen">
-        {children}
-        <Toaster
-          theme="dark"
-          toastOptions={{
-            style: {
-              background: 'hsl(0 0% 7%)',
-              border: '1px solid hsl(0 0% 15%)',
-              color: 'hsl(0 0% 95%)',
-            },
-          }}
-        />
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+          {children}
+          <AppToaster />
+        </ThemeProvider>
       </body>
     </html>
   )

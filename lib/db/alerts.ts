@@ -28,8 +28,9 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
   const severity = row.severity as Severity
   const fallbackScore = defaultScoreFromSeverity(severity)
   const enrichment: AlertEnrichment = enrichRow
-    ? {
+      ? {
         aiAnalysis: (enrichRow.ai_analysis as string) || "",
+        aiSummaryShort: (enrichRow.ai_summary_short as string) || undefined,
         iocType: (enrichRow.ioc_type as string) || "",
         threatIntel: (enrichRow.threat_intel as string) || "",
         recommendation: (enrichRow.recommendation as string) || "",
@@ -43,6 +44,10 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
             : null,
         asnInfo: (enrichRow.asn_info as string) || null,
         parseConfidence: typeof enrichRow.parse_confidence === "number" ? (enrichRow.parse_confidence as number) : undefined,
+        extractedFields: enrichRow.extracted_fields ? JSON.parse(enrichRow.extracted_fields as string) : undefined,
+        fieldConfidence: enrichRow.field_confidence ? JSON.parse(enrichRow.field_confidence as string) : undefined,
+        verdictReason: (enrichRow.verdict_reason as string) || undefined,
+        verdictFactors: enrichRow.verdict_factors ? JSON.parse(enrichRow.verdict_factors as string) : undefined,
         sigma: enrichRow.sigma_match ? JSON.parse(enrichRow.sigma_match as string) : null,
         threatIntelVendors: enrichRow.threat_intel_vendors ? JSON.parse(enrichRow.threat_intel_vendors as string) : undefined,
       }
@@ -58,6 +63,10 @@ function rowToAlert(row: Record<string, unknown>, enrichRow?: Record<string, unk
         geoLocation: null,
         asnInfo: null,
         parseConfidence: undefined,
+        extractedFields: undefined,
+        fieldConfidence: undefined,
+        verdictReason: undefined,
+        verdictFactors: undefined,
         sigma: null,
       }
 
@@ -102,7 +111,7 @@ export async function getAlerts(filters?: {
   offset?: number
 }): Promise<Alert[]> {
   const db = await getDb()
-  let sql = `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence, e.enriched_at, e.threat_intel_vendors
+  let sql = `SELECT a.*, e.ai_analysis, e.ai_summary_short, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence, e.extracted_fields, e.field_confidence, e.verdict_reason, e.verdict_factors, e.enriched_at, e.threat_intel_vendors
     FROM alerts a LEFT JOIN alert_enrichments e ON a.id = e.alert_id WHERE 1=1`
   const params: unknown[] = []
 
@@ -141,7 +150,7 @@ export async function getAlertById(id: string): Promise<Alert | null> {
   const db = await getDb()
   const rows = stmtToObjects(
     db,
-    `SELECT a.*, e.ai_analysis, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence, e.enriched_at, e.threat_intel_vendors
+    `SELECT a.*, e.ai_analysis, e.ai_summary_short, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence, e.extracted_fields, e.field_confidence, e.verdict_reason, e.verdict_factors, e.enriched_at, e.threat_intel_vendors
      FROM alerts a LEFT JOIN alert_enrichments e ON a.id = e.alert_id WHERE a.id = ?`,
     [id]
   )
@@ -195,6 +204,9 @@ export async function updateAlertFields(
   id: string,
   data: Partial<{
     severity: Severity
+    source: string
+    sourceIp: string
+    destIp: string
     yaraMatch: string | null
     mitreTactic: string
     mitreTechnique: string
@@ -206,6 +218,9 @@ export async function updateAlertFields(
   const updates: string[] = []
   const params: unknown[] = []
   if (data.severity !== undefined) { updates.push("severity = ?"); params.push(data.severity) }
+  if (data.source !== undefined) { updates.push("source = ?"); params.push(data.source) }
+  if (data.sourceIp !== undefined) { updates.push("source_ip = ?"); params.push(data.sourceIp) }
+  if (data.destIp !== undefined) { updates.push("dest_ip = ?"); params.push(data.destIp) }
   if (data.yaraMatch !== undefined) { updates.push("yara_match = ?"); params.push(data.yaraMatch) }
   if (data.mitreTactic !== undefined) { updates.push("mitre_tactic = ?"); params.push(data.mitreTactic) }
   if (data.mitreTechnique !== undefined) { updates.push("mitre_technique = ?"); params.push(data.mitreTechnique) }
@@ -296,4 +311,19 @@ export async function getTopMitreTechniques(limit = 8): Promise<Array<{ techniqu
     technique: (r.technique as string).split(" - ")[0],
     count: r.count as number,
   }))
+}
+
+export async function getLabeledAlertsForRag(limit = 100): Promise<Alert[]> {
+  const db = await getDb()
+  const rows = stmtToObjects(
+    db,
+    `SELECT a.*, e.ai_analysis, e.ai_summary_short, e.ioc_type, e.threat_intel, e.recommendation, e.confidence, e.ai_score, e.heuristics_score, e.related_cves, e.geo_country, e.geo_city, e.asn_info, e.sigma_match, e.parse_confidence, e.extracted_fields, e.field_confidence, e.verdict_reason, e.verdict_factors, e.enriched_at, e.threat_intel_vendors
+     FROM alerts a
+     LEFT JOIN alert_enrichments e ON a.id = e.alert_id
+     WHERE a.verdict IN ('malicious', 'false_positive')
+     ORDER BY a.updated_at DESC
+     LIMIT ?`,
+    [Math.max(1, Math.min(1000, limit))]
+  )
+  return rows.map((row) => rowToAlert(row, row))
 }

@@ -2,6 +2,18 @@ export type Severity = "critical" | "high" | "medium" | "low" | "info"
 export type IncidentStatus = "unassigned" | "in_progress" | "resolved"
 export type AlertVerdict = "malicious" | "suspicious" | "false_positive"
 export type LLMProvider = "openai" | "anthropic" | "local" | "custom"
+export type LLMAgentId = "triage" | "ioc_detection" | "threat_intel" | "response" | "summary_header"
+
+export interface LLMAgentConfig {
+  id: LLMAgentId | string
+  name: string
+  description?: string
+  enabled: boolean
+  model: string
+  prompt: string
+  maxTokens?: number
+  temperature?: number
+}
 
 export interface SigmaMatchDetail {
   selection: string
@@ -39,6 +51,7 @@ export interface ThreatIntelVendorResult {
 
 export interface AlertEnrichment {
   aiAnalysis: string
+  aiSummaryShort?: string
   iocType: string
   threatIntel: string
   recommendation: string
@@ -49,6 +62,10 @@ export interface AlertEnrichment {
   geoLocation: { country: string; city: string } | null
   asnInfo: string | null
   parseConfidence?: number
+  extractedFields?: Record<string, unknown>
+  fieldConfidence?: Record<string, number>
+  verdictReason?: string
+  verdictFactors?: Record<string, unknown>
   sigma?: SigmaMatch | null
   threatIntelVendors?: ThreatIntelVendorResult[]
 }
@@ -98,6 +115,16 @@ export interface Settings {
     autoStatusConfidenceThreshold?: number
     verdictMaliciousThreshold?: number
     verdictSuspiciousThreshold?: number
+    fpAutoResolveThreshold?: number
+    neverAutoResolveLowEvidence?: boolean
+    minAutoResolveEvidence?: number
+    agents?: LLMAgentConfig[]
+    sourceThresholds?: Record<string, {
+      maliciousThreshold?: number
+      suspiciousThreshold?: number
+      fpAutoResolveThreshold?: number
+      minAutoResolveEvidence?: number
+    }>
   }
   yara: { enabled: boolean; autoUpdate: boolean }
   sigma: {
@@ -107,6 +134,9 @@ export interface Settings {
     lastSyncAt?: string
     lastSyncStatus?: "success" | "error"
     lastSyncError?: string
+  }
+  pipeline: {
+    fieldConfidenceThreshold: number
   }
   syslogOutput: { enabled: boolean; host: string; port: number; format: "cef" | "leef" | "json" }
 }
@@ -124,4 +154,21 @@ export interface ThreatFeed {
   url: string
   apiKey: string
   enabled: boolean
+}
+
+export interface UserAccount {
+  id: string
+  username: string
+  role: "admin" | "analyst"
+  createdAt: string
+}
+
+export interface AlertNote {
+  id: string
+  alertId: string
+  username: string
+  noteText: string
+  imageData?: string | null
+  imageMime?: string | null
+  createdAt: string
 }

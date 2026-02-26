@@ -1,13 +1,21 @@
 import { NextRequest } from "next/server"
 import { getAlertById, updateAlertFields } from "@/lib/db/alerts"
 import { classifyLog } from "@/lib/pipeline/classifier"
+import { extractAndMapLogFields } from "@/lib/pipeline/field-extraction"
 import { classifyWithSigma } from "@/lib/sigma"
 import { scanLogMessage } from "@/lib/yara"
-import { extractStructuredFields } from "@/lib/ingestion/structured-fields"
 import { upsertEnrichment } from "@/lib/db/enrichments"
 import { getSetting } from "@/lib/db/settings"
 import { getThreatFeeds } from "@/lib/db/threat-feeds"
 import type { Severity } from "@/lib/types"
+import { getSession } from "@/lib/auth"
+import { validateApiKeyWithRateLimit } from "@/lib/security/api-auth"
+
+async function validateAccess(request: NextRequest): Promise<{ ok: boolean; status: number; error: string }> {
+  const session = await getSession()
+  if (session) return { ok: true, status: 200, error: "" }
+  return validateApiKeyWithRateLimit(request, "alerts:rescan", 30, 60_000)
+}
 
 function detectSeverity(message: string): Severity {
   const lower = message.toLowerCase()
@@ -22,6 +30,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await validateAccess(request)
+  if (!auth.ok) return new Response(auth.error, { status: auth.status })
+
   const { id } = await params
   const alert = await getAlertById(id)
   if (!alert) return new Response("Not found", { status: 404 })
@@ -55,32 +66,52 @@ export async function GET(
         const yaraEnabled = !!yaraSettings?.enabled
         const activeThreatFeeds = threatFeeds.filter((f) => f.enabled).length
 
-        // ── Step 1: Severity Detection ──
+        // Step 1: Field extraction and mapping
+        emit({ step: "fields", status: "running", detail: "Extracting and mapping fields..." })
+        const extracted = await extractAndMapLogFields(alert.rawLog, true, alert.source)
+        await updateAlertFields(id, {
+          source: extracted.mapped.source || alert.source,
+          sourceIp: extracted.mapped.sourceIp || alert.sourceIp,
+          destIp: extracted.mapped.destIp || alert.destIp,
+        })
+        await upsertEnrichment(id, {
+          parseConfidence: extracted.confidence,
+          extractedFields: extracted.fields,
+          fieldConfidence: extracted.fieldConfidence as Record<string, number>,
+        })
+        emit({
+          step: "fields",
+          status: extracted.confidence > 50 ? "ok" : "no_match",
+          detail: `${Math.round(extracted.confidence)}% confidence`,
+        })
+        if (signal.aborted) return
+
+        // Step 2: Severity detection
         emit({ step: "severity", status: "running", detail: "Detecting severity..." })
         const severity = detectSeverity(alert.rawLog)
         await updateAlertFields(id, { severity })
         emit({ step: "severity", status: "ok", detail: severity.charAt(0).toUpperCase() + severity.slice(1) })
         if (signal.aborted) return
 
-        // ── Step 2: Sigma Rules ──
+        // Step 3: Sigma rules
         let sigmaResult: Awaited<ReturnType<typeof classifyWithSigma>> | null = null
         if (sigmaEnabled) {
           emit({ step: "sigma", status: "running", detail: "Running Sigma rules..." })
-          sigmaResult = await classifyWithSigma(alert.rawLog, alert.source, true).catch(() => null)
+          sigmaResult = await classifyWithSigma(alert.rawLog, extracted.mapped.source || alert.source, true).catch(() => null)
           await upsertEnrichment(id, { sigmaMatch: sigmaResult?.sigma || null })
           emit({
             step: "sigma",
-            status: sigmaResult?.sigma ? "match" : "no_match",
-            detail: sigmaResult?.sigma?.title || "No match",
+            status: "ok",
+            detail: sigmaResult?.sigma?.title ? `Executed · matched: ${sigmaResult.sigma.title}` : "Executed · no match",
           })
         } else {
           emit({ step: "sigma", status: "disabled", detail: "Disabled" })
         }
         if (signal.aborted) return
 
-        // ── Step 3: Built-in Classifier ──
+        // Step 4: Built-in classifier
         emit({ step: "classifier", status: "running", detail: "Classifying..." })
-        const builtinClassification = classifyLog(alert.rawLog, alert.source)
+        const builtinClassification = classifyLog(alert.rawLog, extracted.mapped.source || alert.source)
         const classification = sigmaResult?.classification || builtinClassification
         if (classification) {
           await updateAlertFields(id, {
@@ -90,35 +121,31 @@ export async function GET(
         }
         emit({
           step: "classifier",
-          status: classification?.mitreTactic && classification.mitreTactic !== "Unknown" ? "match" : "no_match",
-          detail: classification?.mitreTactic || "No match",
+          status: "ok",
+          detail:
+            classification?.mitreTactic && classification.mitreTactic !== "Unknown"
+              ? `Executed · mapped: ${classification.mitreTactic}`
+              : "Executed · no mapping",
         })
         if (signal.aborted) return
 
-        // ── Step 4: YARA Scan ──
+        // Step 5: YARA scan
         if (yaraEnabled) {
           emit({ step: "yara", status: "running", detail: "Scanning with YARA..." })
           let yaraMatch: string | null = null
           try { yaraMatch = await scanLogMessage(alert.rawLog) } catch {}
           await updateAlertFields(id, { yaraMatch })
-          emit({ step: "yara", status: yaraMatch ? "match" : "no_match", detail: yaraMatch || "No match" })
+          emit({
+            step: "yara",
+            status: "ok",
+            detail: yaraMatch ? `Executed · matched: ${yaraMatch}` : "Executed · no match",
+          })
         } else {
           emit({ step: "yara", status: "disabled", detail: "Disabled" })
         }
         if (signal.aborted) return
 
-        // ── Step 5: Field Extraction ──
-        emit({ step: "fields", status: "running", detail: "Extracting fields..." })
-        const structured = extractStructuredFields(alert.rawLog, true)
-        await upsertEnrichment(id, { parseConfidence: structured.confidence })
-        emit({
-          step: "fields",
-          status: structured.confidence > 50 ? "ok" : "no_match",
-          detail: `${Math.round(structured.confidence)}% confidence`,
-        })
-        if (signal.aborted) return
-
-        // ── Step 6: Threat Intel ──
+        // Step 6: Threat intel
         if (activeThreatFeeds > 0) {
           emit({ step: "threatintel", status: "running", detail: "Looking up threat intel..." })
           try {
@@ -137,7 +164,7 @@ export async function GET(
         }
         if (signal.aborted) return
 
-        // ── Step 7: AI Analysis ──
+        // Step 7: AI analysis
         if (llmConfigured) {
           emit({ step: "ai", status: "running", detail: "Running AI analysis..." })
           try {
@@ -145,7 +172,7 @@ export async function GET(
             await enrichAlertWithLLM(id)
             const updated = await getAlertById(id)
             emit({ step: "ai", status: "ok", detail: `Score ${updated?.enrichment.aiScore ?? "?"}` })
-            // ── Step 8: Heuristics (derived from AI) ──
+            // Step 8: Heuristics (derived from AI)
             const hScore = updated?.enrichment.heuristicsScore ?? 0
             emit({ step: "heuristics", status: hScore > 0 ? "ok" : "no_match", detail: `Score ${hScore}` })
           } catch {

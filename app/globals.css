@@ -64,6 +64,52 @@
     --status-resolved: 142 71% 45%;
     --status-fp: 0 0% 40%;
   }
+
+  .light {
+    --background: 0 0% 99%;
+    --foreground: 0 0% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 10%;
+    --primary: 0 0% 12%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 0 0% 94%;
+    --secondary-foreground: 0 0% 20%;
+    --muted: 0 0% 95%;
+    --muted-foreground: 0 0% 42%;
+    --accent: 0 0% 92%;
+    --accent-foreground: 0 0% 12%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 86%;
+    --input: 0 0% 92%;
+    --ring: 0 0% 45%;
+    --chart-1: 0 0% 24%;
+    --chart-2: 0 0% 36%;
+    --chart-3: 0 0% 48%;
+    --chart-4: 0 0% 62%;
+    --chart-5: 0 0% 74%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 0 0% 18%;
+    --sidebar-primary: 0 0% 12%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 0 0% 92%;
+    --sidebar-accent-foreground: 0 0% 14%;
+    --sidebar-border: 0 0% 84%;
+    --sidebar-ring: 0 0% 42%;
+
+    --severity-critical: 0 72% 45%;
+    --severity-high: 25 95% 45%;
+    --severity-medium: 45 93% 42%;
+    --severity-low: 217 91% 48%;
+    --severity-info: 0 0% 40%;
+
+    --status-new: 217 91% 48%;
+    --status-investigating: 45 93% 42%;
+    --status-resolved: 142 71% 38%;
+    --status-fp: 0 0% 40%;
+  }
 }
 
 @layer base {

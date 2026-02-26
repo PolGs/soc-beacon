@@ -15,7 +15,14 @@ export interface LLMClient {
   chat(messages: LLMMessage[]): Promise<LLMResponse>
 }
 
-export async function getLLMClient(): Promise<LLMClient> {
+export interface LLMClientOverrides {
+  model?: string
+  maxTokens?: number
+  temperature?: number
+  endpoint?: string
+}
+
+export async function getLLMClient(overrides?: LLMClientOverrides): Promise<LLMClient> {
   const settings = await getSetting<{
     provider: LLMProvider
     apiKey: string
@@ -51,9 +58,9 @@ export async function getLLMClient(): Promise<LLMClient> {
   const { createOpenAIClient } = await import("./openai-provider")
   return createOpenAIClient({
     apiKey,
-    model: settings.model || "gpt-4.1-nano",
-    endpoint,
-    maxTokens: settings.maxTokens,
-    temperature: settings.temperature,
+    model: overrides?.model || settings.model || "gpt-4.1-nano",
+    endpoint: overrides?.endpoint || endpoint,
+    maxTokens: typeof overrides?.maxTokens === "number" ? overrides.maxTokens : settings.maxTokens,
+    temperature: typeof overrides?.temperature === "number" ? overrides.temperature : settings.temperature,
   })
 }

@@ -23,10 +23,14 @@ export async function enrichAlertWithThreatIntel(alertId: string): Promise<void>
   if (alert.destIp && alert.destIp !== "0.0.0.0") parsed.ips.push(alert.destIp)
   parsed.ips = [...new Set(parsed.ips)].slice(0, 12)
 
-  // Also pull indicators from structured fields (CEF/LEEF/JSON/KV parsed values)
+  // Also pull indicators from structured fields (persisted extraction first, parser fallback).
   try {
-    const structured = extractStructuredFields(alert.rawLog, true)
-    for (const [key, value] of Object.entries(structured.fields)) {
+    const structuredFields =
+      (alert.enrichment.extractedFields && Object.keys(alert.enrichment.extractedFields).length > 0)
+        ? alert.enrichment.extractedFields
+        : extractStructuredFields(alert.rawLog, true).fields
+
+    for (const [key, value] of Object.entries(structuredFields)) {
       const k = key.toLowerCase()
       const v = String(value).trim()
       if (!v) continue

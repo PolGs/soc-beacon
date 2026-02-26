@@ -4,8 +4,8 @@ import { classifyLog } from "./classifier"
 import { scanLogMessage } from "@/lib/yara"
 import { classifyWithSigma } from "@/lib/sigma"
 import { upsertEnrichment } from "@/lib/db/enrichments"
-import { extractStructuredFields } from "@/lib/ingestion/structured-fields"
 import { systemLog } from "@/lib/system-log"
+import { extractAndMapLogFields } from "./field-extraction"
 import type { Severity } from "@/lib/types"
 
 interface IngestLogInput {
@@ -25,32 +25,29 @@ function detectSeverity(message: string): Severity {
   return "info"
 }
 
-function extractIPs(message: string): { sourceIp: string; destIp: string } {
-  const ipRegex = /\b(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\b/g
-  const ips = message.match(ipRegex) || []
-  return {
-    sourceIp: ips[0] || "0.0.0.0",
-    destIp: ips[1] || "0.0.0.0",
-  }
-}
-
 export async function ingestLog(input: IngestLogInput): Promise<{ logId: string; alertId?: string }> {
+  // Step 1: Extract structured fields early (AI + heuristic), then map normalized columns.
+  const extracted = await extractAndMapLogFields(input.message, input.parsed, input.source)
+  const normalizedSource = extracted.mapped.source || input.source
+  const sourceIp = extracted.mapped.sourceIp || "0.0.0.0"
+  const destIp = extracted.mapped.destIp || "0.0.0.0"
+
   const baseSeverity = input.severity || detectSeverity(input.message)
   const timestamp = input.timestamp || new Date().toISOString()
 
   // Detect/classify first so missing severity can be upgraded from detection.
-  const sigmaResult = await classifyWithSigma(input.message, input.source, input.parsed).catch((err) => {
+  const sigmaResult = await classifyWithSigma(input.message, normalizedSource, input.parsed).catch((err) => {
     systemLog("error", "sigma", "Sigma evaluation failed", { error: String(err) })
     return null
   })
-  const builtinClassification = classifyLog(input.message, input.source)
+  const builtinClassification = classifyLog(input.message, normalizedSource)
   const classification = sigmaResult?.classification || builtinClassification
   const effectiveSeverity = classification?.severity || baseSeverity
 
   // Create log entry
   const logId = await createLog({
     timestamp,
-    source: input.source,
+    source: normalizedSource,
     message: input.message,
     severity: effectiveSeverity,
     parsed: input.parsed ?? true,
@@ -65,11 +62,9 @@ export async function ingestLog(input: IngestLogInput): Promise<{ logId: string;
   }
 
   // Always create an alert for every accepted log entry.
-  const { sourceIp, destIp } = extractIPs(input.message)
-
   const alertData = {
     timestamp,
-    source: input.source,
+    source: normalizedSource,
     sourceIp,
     destIp,
     severity: effectiveSeverity,
@@ -93,9 +88,10 @@ export async function ingestLog(input: IngestLogInput): Promise<{ logId: string;
     })
   }
 
-  const structured = extractStructuredFields(input.message, input.parsed)
   await upsertEnrichment(alertId, {
-    parseConfidence: structured.confidence,
+    parseConfidence: extracted.confidence,
+    extractedFields: extracted.fields,
+    fieldConfidence: extracted.fieldConfidence as Record<string, number>,
     sigmaMatch: sigmaResult?.sigma,
   })
 

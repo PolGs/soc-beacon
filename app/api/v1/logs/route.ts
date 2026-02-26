@@ -1,34 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import { getLogs } from "@/lib/db/logs"
-import { getSetting } from "@/lib/db/settings"
 import { ingestLog } from "@/lib/pipeline"
-
-async function validateApiKey(request: NextRequest): Promise<{ ok: boolean; status: number; error: string }> {
-  const apiSettings = await getSetting<{ enabled: boolean; apiKey: string }>("api", {
-    enabled: true,
-    apiKey: "",
-  })
-
-  if (!apiSettings.enabled) {
-    return { ok: false, status: 403, error: "API is disabled" }
-  }
-
-  if (!apiSettings.apiKey) {
-    return { ok: false, status: 401, error: "API key is not configured" }
-  }
-
-  const authHeader = request.headers.get("authorization")
-  const apiKey = authHeader?.replace(/^Bearer\s+/i, "") || request.headers.get("x-api-key")
-
-  if (!apiKey || apiKey !== apiSettings.apiKey) {
-    return { ok: false, status: 401, error: "Unauthorized" }
-  }
-
-  return { ok: true, status: 200, error: "" }
-}
+import { validateApiKeyWithRateLimit } from "@/lib/security/api-auth"
 
 export async function GET(request: NextRequest) {
-  const auth = await validateApiKey(request)
+  const auth = await validateApiKeyWithRateLimit(request, "v1:logs:get", 180, 60_000)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -50,7 +26,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await validateApiKey(request)
+  const auth = await validateApiKeyWithRateLimit(request, "v1:logs:post", 240, 60_000)
   if (!auth.ok) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

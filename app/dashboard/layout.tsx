@@ -8,7 +8,7 @@ export default async function DashboardLayout({
   children: React.ReactNode
 }) {
   const session = await requireAuth()
-  const needsPasswordReset = session.user === "admin" ? await isDefaultAdminPassword() : false
+  const needsPasswordReset = session.role === "admin" ? await isDefaultAdminPassword() : false
 
   return <DashboardShell user={session.user} requirePasswordReset={needsPasswordReset}>{children}</DashboardShell>
 }
