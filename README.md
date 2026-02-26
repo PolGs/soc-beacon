@@ -1,4 +1,5 @@
 # SOC Beacon — Open Source AI Security Platform
+<img width="1008" height="237" alt="image" src="https://github.com/user-attachments/assets/59bc58b1-f599-4beb-b647-5b8e97246d2f" />
 
 **The open source security operations center (SOC) platform that uses artificial intelligence to analyze, classify, and correlate your logs — so your team catches threats that manual analysis misses.**
 
