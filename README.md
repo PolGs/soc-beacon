@@ -13,8 +13,7 @@
 > **Ship an AI-powered SOC in minutes, not months.** SOC Beacon replaces the complexity of enterprise SIEM deployments with a single platform that ingests logs, generates alerts, enriches incidents with AI and threat intelligence, and gives analysts a fast triage workflow — all from one dashboard.
 
 ---
-
-<img width="1200" height="1257" alt="image" src="https://github.com/user-attachments/assets/8bae7fcb-170f-4b69-acce-0803fd94e4e2" />
+<img width="1095" height="934" alt="image" src="https://github.com/user-attachments/assets/d40ddc61-32c7-45e3-878b-cbdccdd26f35" />
 
 
 
