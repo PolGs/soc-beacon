@@ -21,6 +21,7 @@ import {
   Eye,
   EyeOff,
   X,
+  Loader2,
 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useRouter } from "next/navigation"
@@ -358,6 +359,14 @@ function SortIcon({ colKey, sortKey, direction }: { colKey: SortKey; sortKey: So
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Enrichment helpers
+// ──────────────────────────────────────────────────────────────────
+
+function isEnrichmentPending(alert: Alert): boolean {
+  return !alert.enrichment.aiAnalysis?.trim()
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Main Component
 // ──────────────────────────────────────────────────────────────────
 
@@ -383,6 +392,13 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
   useEffect(() => {
     setAlerts(initialAlerts)
   }, [initialAlerts])
+
+  const hasPendingAlerts = alerts.some(isEnrichmentPending)
+  useEffect(() => {
+    if (!hasPendingAlerts) return
+    const interval = setInterval(() => router.refresh(), 4000)
+    return () => clearInterval(interval)
+  }, [hasPendingAlerts, router])
 
   const markUpdating = useCallback((id: string, value: boolean) => {
     setUpdatingRows((prev) => {
@@ -653,7 +669,11 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
                               onClick={(e) => e.stopPropagation()}
                               className="text-xs text-foreground/90 hover:text-foreground font-medium transition-colors"
                             >
-                              {alert.title}
+                              {isEnrichmentPending(alert) ? (
+                                <span className="inline-block h-3 w-36 rounded bg-muted animate-pulse align-middle" />
+                              ) : (
+                                alert.title
+                              )}
                             </Link>
                             <p className="text-[11px] text-muted-foreground mt-0.5 max-w-md truncate">
                               {alert.description}
@@ -674,21 +694,30 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
 
                         {key === "verdict" && (
                           <div className="flex items-center gap-2">
-                            <VerdictBadge verdict={alert.verdict} />
-                            <select
-                              value={alert.verdict}
-                              disabled={!!updatingRows[alert.id]}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => {
-                                e.stopPropagation()
-                                handleInlineVerdictChange(alert.id, e.target.value as AlertVerdict)
-                              }}
-                              className="h-7 rounded-md border border-border/50 bg-background/60 px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/30 disabled:opacity-60"
-                            >
-                              <option value="malicious">Malicious</option>
-                              <option value="suspicious">Suspicious</option>
-                              <option value="false_positive">False Positive</option>
-                            </select>
+                            {isEnrichmentPending(alert) ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium leading-none border-border/30 text-muted-foreground bg-foreground/5 animate-pulse">
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                Analyzing…
+                              </span>
+                            ) : (
+                              <>
+                                <VerdictBadge verdict={alert.verdict} />
+                                <select
+                                  value={alert.verdict}
+                                  disabled={!!updatingRows[alert.id]}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    e.stopPropagation()
+                                    handleInlineVerdictChange(alert.id, e.target.value as AlertVerdict)
+                                  }}
+                                  className="h-7 rounded-md border border-border/50 bg-background/60 px-2 text-[11px] text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/30 disabled:opacity-60"
+                                >
+                                  <option value="malicious">Malicious</option>
+                                  <option value="suspicious">Suspicious</option>
+                                  <option value="false_positive">False Positive</option>
+                                </select>
+                              </>
+                            )}
                           </div>
                         )}
 
@@ -713,11 +742,11 @@ export function AlertsView({ initialAlerts }: AlertsViewProps) {
                         )}
 
                         {key === "aiScore" && (
-                          <ScoreRing label="AI" score={alert.enrichment.aiScore} size={44} />
+                          <ScoreRing label="AI" score={alert.enrichment.aiScore} size={44} loading={isEnrichmentPending(alert)} />
                         )}
 
                         {key === "heuristicsScore" && (
-                          <ScoreRing label="Heur" score={alert.enrichment.heuristicsScore} size={44} />
+                          <ScoreRing label="Heur" score={alert.enrichment.heuristicsScore} size={44} loading={isEnrichmentPending(alert)} />
                         )}
 
                         {key === "alertTime" && (

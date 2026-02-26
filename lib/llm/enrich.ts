@@ -36,7 +36,27 @@ Return ONLY valid JSON with:
   "recommendation": "numbered incident-response actions",
   "mitreTactic": "MITRE tactic",
   "mitreTechnique": "MITRE technique id and name"
-}`
+}
+
+SCORING RUBRIC — aiScore represents malicious confidence based on the activity described in the raw log. Score the BEHAVIOUR, not the presence of external IOC hits:
+95-100: Confirmed destructive/critical attack in progress — ransomware encrypting files, active data exfiltration confirmed, destructive wiper, confirmed C2 with data theft
+85-94: Near-certain malicious activity — ransomware indicators (mass rename/encrypt + ransom note), credential dumping (mimikatz/lsass), active C2 beacon, lateral movement confirmed
+70-84: High confidence threat — malicious macro/script execution, suspicious process spawning shells, known bad tool names (psexec abuse, cobalt strike), privilege escalation attempts
+45-69: Suspicious, unconfirmed — anomalous behaviour without clear malicious intent, policy violations, single weak indicator, possible false positive
+20-44: Low threat — minor anomalies, misconfigurations, unusual but likely benign
+0-19: Almost certainly benign — expected system behaviour, known-good processes, noise
+
+Calibration examples (score the log content, not missing external evidence):
+- "3420 files renamed .lockbit + ransom note + bitcoin" → 97
+- "mimikatz detected / lsass dump" → 93
+- "AutoOpen() macro + WScript.Shell in email attachment" → 82
+- "psexec lateral movement to 10 hosts" → 88
+- "suspicious PowerShell -encodedcommand" → 74
+- "failed logins from unknown country" → 38
+- "port scan detected" → 48
+- "normal auth from known IP" → 12
+
+IMPORTANT: Absence of threat intel hits or external IP reputation data does NOT lower the score. Score what the log says happened.`
 
 const DEFAULT_AGENTS: LLMAgentConfig[] = [
   {
@@ -330,18 +350,18 @@ export async function enrichAlertWithLLM(alertId: string): Promise<void> {
   const indicators = extractIndicators([alert.title, alert.description, alert.rawLog].join("\n"))
   const historicalCases = await retrieveHistoricalCasesForAlert(alert, 8).catch(() => [])
   const historicalContext = formatHistoricalCasesForPrompt(historicalCases)
+  // NOTE: Title, Description, YARA Match, and Sigma match data are intentionally
+  // excluded from the AI agent context. Those fields are derived from detection rules
+  // and can confuse agents about what the original raw log actually contains.
   const sharedContext = `
 Alert ID: ${alert.id}
 Timestamp: ${alert.timestamp}
-Title: ${alert.title}
 Severity: ${alert.severity}
 Source: ${alert.source}
 Source IP: ${alert.sourceIp}
 Destination IP: ${alert.destIp}
 MITRE Tactic: ${alert.mitreTactic}
 MITRE Technique: ${alert.mitreTechnique}
-YARA Match: ${alert.yaraMatch || "None"}
-Description: ${alert.description}
 Raw Log: ${alert.rawLog.slice(0, 1200)}
 Indicators:
 - IPs: ${indicators.ips.join(", ") || "None"}
@@ -459,8 +479,10 @@ ${historicalContext}
     .map((r) => r.severity)
     .filter((s): s is Severity => !!s)
   const recategorizedSeverity = aggregateSeverity(aiSeverities, alert.severity)
+  // Heuristics score is a rule-based signal independent of LLM — use the alert's
+  // own ingestion-time severity so a confused AI agent cannot drag it down.
   const heuristicsScore = computeHeuristicsScore({
-    severity: recategorizedSeverity,
+    severity: alert.severity,
     indicators,
     hasThreatIntel: Boolean(alert.enrichment.threatIntel?.trim()),
     hasYaraMatch: Boolean(alert.yaraMatch),

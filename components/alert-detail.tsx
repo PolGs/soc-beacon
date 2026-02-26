@@ -845,6 +845,13 @@ export function AlertDetail({
     [alert.enrichment.aiSummaryShort, alert.enrichment.aiAnalysis, alert.description]
   )
 
+  const isEnrichmentPending = !alert.enrichment.aiAnalysis?.trim()
+  useEffect(() => {
+    if (!isEnrichmentPending) return
+    const interval = setInterval(() => router.refresh(), 3000)
+    return () => clearInterval(interval)
+  }, [isEnrichmentPending, router])
+
   const handleIncidentStatusChange = (incidentStatus: IncidentStatus) => {
     startTransition(() => {
       updateAlertIncidentStatusAction(alert.id, incidentStatus)
@@ -947,7 +954,14 @@ export function AlertDetail({
           <div className="flex flex-col gap-3 flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <SeverityBadge severity={alert.severity} />
-              <VerdictBadge verdict={alert.verdict} />
+              {isEnrichmentPending ? (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-medium leading-none border-border/30 text-muted-foreground bg-foreground/5 animate-pulse">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  Analyzing…
+                </span>
+              ) : (
+                <VerdictBadge verdict={alert.verdict} />
+              )}
               <StatusBadge status={alert.incidentStatus} />
               <span className="text-[11px] font-mono text-muted-foreground/60">{alert.id}</span>
             </div>
@@ -1021,7 +1035,14 @@ export function AlertDetail({
                   AI Summary
                 </span>
               </div>
-              <p className="text-xs text-foreground/85 leading-relaxed">{aiHeaderSummary}</p>
+              {isEnrichmentPending ? (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground/70">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                  <span>Enrichment in progress…</span>
+                </div>
+              ) : (
+                <p className="text-xs text-foreground/85 leading-relaxed">{aiHeaderSummary}</p>
+              )}
             </div>
           </div>
 
@@ -1030,7 +1051,7 @@ export function AlertDetail({
             <CombinedScoreDisplay
               aiScore={alert.enrichment.aiScore}
               heuristicsScore={alert.enrichment.heuristicsScore}
-              loading={scanState === "scanning"}
+              loading={scanState === "scanning" || isEnrichmentPending}
             />
           </div>
         </div>
@@ -1155,7 +1176,14 @@ export function AlertDetail({
                 <h3 className="text-sm font-medium text-foreground">LLM Analysis</h3>
               </div>
               <div className="bg-background/50 rounded-md p-4 border border-border/30">
-                <p className="text-xs text-foreground/80 leading-relaxed">{alert.enrichment.aiAnalysis}</p>
+                {isEnrichmentPending ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground/70">
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <span>Analysis pending… checking again in a moment</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-foreground/80 leading-relaxed">{alert.enrichment.aiAnalysis}</p>
+                )}
               </div>
             </div>
 
@@ -1177,19 +1205,26 @@ export function AlertDetail({
                 <h3 className="text-sm font-medium text-foreground">Recommendations</h3>
               </div>
               <div className="bg-background/50 rounded-md p-4 border border-border/30">
-                <div className="flex flex-col gap-2">
-                  {alert.enrichment.recommendation
-                    .split(/\d+\.\s/)
-                    .filter(Boolean)
-                    .map((rec, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <span className="text-[10px] font-mono text-muted-foreground shrink-0 mt-0.5 w-4 text-right">
-                          {i + 1}.
-                        </span>
-                        <span className="text-xs text-foreground/80 leading-relaxed">{rec.trim()}</span>
-                      </div>
-                    ))}
-                </div>
+                {isEnrichmentPending ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground/70">
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <span>Recommendations pending…</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {alert.enrichment.recommendation
+                      .split(/\d+\.\s/)
+                      .filter(Boolean)
+                      .map((rec, i) => (
+                        <div key={i} className="flex items-start gap-2">
+                          <span className="text-[10px] font-mono text-muted-foreground shrink-0 mt-0.5 w-4 text-right">
+                            {i + 1}.
+                          </span>
+                          <span className="text-xs text-foreground/80 leading-relaxed">{rec.trim()}</span>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1199,7 +1234,14 @@ export function AlertDetail({
                 <h3 className="text-sm font-medium text-foreground">Threat Intelligence</h3>
               </div>
               <div className="bg-background/50 rounded-md p-4 border border-border/30">
-                <p className="text-xs text-foreground/80 leading-relaxed">{alert.enrichment.threatIntel}</p>
+                {isEnrichmentPending ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground/70">
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    <span>Threat intelligence lookup pending…</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-foreground/80 leading-relaxed">{alert.enrichment.threatIntel}</p>
+                )}
               </div>
             </div>
           </div>

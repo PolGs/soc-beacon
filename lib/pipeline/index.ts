@@ -16,10 +16,20 @@ interface IngestLogInput {
   parsed?: boolean
 }
 
+const SEVERITY_RANK: Record<Severity, number> = { info: 0, low: 1, medium: 2, high: 3, critical: 4 }
+
+function maxSeverity(...candidates: (Severity | undefined)[]): Severity {
+  let best: Severity = "info"
+  for (const s of candidates) {
+    if (s && SEVERITY_RANK[s] > SEVERITY_RANK[best]) best = s
+  }
+  return best
+}
+
 function detectSeverity(message: string): Severity {
   const lower = message.toLowerCase()
-  if (/critical|emergency|fatal|panic/.test(lower)) return "critical"
-  if (/error|fail|denied|attack|alert|breach|exploit/.test(lower)) return "high"
+  if (/critical|emergency|fatal|panic|ransomware|lockbit|\.locky|\.crypt|encrypt.*files?|files?.*encrypt|ransom.*note|ransom.*demand|bitcoin.*ransom|files.*renamed.*\.(lock|encrypt)/.test(lower)) return "critical"
+  if (/error|fail|denied|attack|alert|breach|exploit|malware|trojan|virus|backdoor|rootkit|keylogger/.test(lower)) return "high"
   if (/warn|warning|suspicious|unusual|anomal/.test(lower)) return "medium"
   if (/notice|info|success|accept/.test(lower)) return "low"
   return "info"
@@ -41,8 +51,13 @@ export async function ingestLog(input: IngestLogInput): Promise<{ logId: string;
     return null
   })
   const builtinClassification = classifyLog(input.message, normalizedSource)
-  const classification = sigmaResult?.classification || builtinClassification
-  const effectiveSeverity = classification?.severity || baseSeverity
+  // Sigma provides better severity and MITRE mappings but its title/description
+  // describe the detection rule, not the actual log event — so title/description
+  // always come from the built-in classifier or raw log fallback.
+  const sigmaClassification = sigmaResult?.classification
+  // Always take the highest severity across all detectors — a wrong sigma match
+  // should never downgrade what the built-in classifier or keyword detector found.
+  const effectiveSeverity = maxSeverity(sigmaClassification?.severity, builtinClassification?.severity, baseSeverity)
 
   // Create log entry
   const logId = await createLog({
@@ -68,11 +83,11 @@ export async function ingestLog(input: IngestLogInput): Promise<{ logId: string;
     sourceIp,
     destIp,
     severity: effectiveSeverity,
-    title: classification?.title || `${effectiveSeverity.toUpperCase()} severity event from ${input.source}`,
-    description: classification?.description || input.message.slice(0, 200),
+    title: builtinClassification?.title || `${effectiveSeverity.toUpperCase()} severity event from ${input.source}`,
+    description: builtinClassification?.description || input.message.slice(0, 200),
     yaraMatch,
-    mitreTactic: classification?.mitreTactic || "Unknown",
-    mitreTechnique: classification?.mitreTechnique || "Unknown",
+    mitreTactic: sigmaClassification?.mitreTactic || builtinClassification?.mitreTactic || "Unknown",
+    mitreTechnique: sigmaClassification?.mitreTechnique || builtinClassification?.mitreTechnique || "Unknown",
     incidentStatus: "unassigned" as const,
     verdict: "suspicious" as const,
     rawLog: input.message,
